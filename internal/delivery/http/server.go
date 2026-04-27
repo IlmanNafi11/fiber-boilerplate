@@ -28,6 +28,9 @@ func NewServer(cfg *config.Config, logger *zap.Logger) *fiber.App {
 				zap.String("stack", string(debug.Stack())),
 			)
 		},
+		PanicHandler: func(c fiber.Ctx, v any) error {
+			return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+		},
 	}))
 
 	// 2. Request ID -- available to all downstream middleware and handlers (SEC-05, D-12)

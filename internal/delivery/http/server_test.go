@@ -1,7 +1,9 @@
 package http
 
 import (
+	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
@@ -27,6 +29,11 @@ func TestRecover(t *testing.T) {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, 500, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.False(t, strings.Contains(string(body), "test panic"),
+		"response body must not leak internal panic details")
 }
 
 func TestRequestID(t *testing.T) {
