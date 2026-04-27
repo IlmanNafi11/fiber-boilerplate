@@ -40,7 +40,8 @@ func TestRequestID(t *testing.T) {
 
 func TestCORS_AllowedOrigin(t *testing.T) {
 	app := NewServer(testConfig("http://localhost:3000"), zap.NewNop())
-	req := httptest.NewRequest("OPTIONS", "/", nil)
+	// Use a simple GET with Origin header to test CORS
+	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -49,7 +50,7 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 
 func TestCORS_DisallowedOrigin(t *testing.T) {
 	app := NewServer(testConfig("http://localhost:3000"), zap.NewNop())
-	req := httptest.NewRequest("OPTIONS", "/", nil)
+	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Origin", "http://evil.com")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
