@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	"github.com/golang-migrate/migrate/v4"
@@ -14,7 +15,6 @@ import (
 
 func main() {
 	allFlag := flag.Bool("all", false, "apply to all migrations (used with down)")
-	versionFlag := flag.Int("version", 0, "target version (used with force)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -88,13 +88,17 @@ func main() {
 		fmt.Printf("current version: %d (%s)\n", version, dirtyStatus)
 
 	case "force":
-		if *versionFlag == 0 {
-			log.Fatal("force requires -version flag (e.g., migrate force -version 1)")
+		if len(args) < 2 {
+			log.Fatal("force requires a version argument (e.g., migrate force 1)")
 		}
-		if err := m.Force(*versionFlag); err != nil {
+		forceVersion, err := strconv.Atoi(args[1])
+		if err != nil {
+			log.Fatalf("force: invalid version %q: must be a number", args[1])
+		}
+		if err := m.Force(forceVersion); err != nil {
 			log.Fatalf("force version failed: %v", err)
 		}
-		fmt.Printf("forced version to %d\n", *versionFlag)
+		fmt.Printf("forced version to %d\n", forceVersion)
 
 	default:
 		fmt.Printf("unknown command: %s\n", command)
