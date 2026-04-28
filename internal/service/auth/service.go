@@ -324,10 +324,11 @@ func (s *AuthService) GetCurrentUser(ctx context.Context, userID string) (*aserv
 	}
 
 	return &aservice.UserResponse{
-		ID:        u.ID,
-		Email:     u.Email,
-		Role:      u.Role,
-		IsActive:  u.IsActive,
-		CreatedAt: u.CreatedAt,
+		ID:              u.ID,
+		Email:           u.Email,
+		Role:            u.Role,
+		IsActive:        u.IsActive,
+		EmailVerifiedAt: u.EmailVerifiedAt,
+		CreatedAt:       u.CreatedAt,
 	}, nil
 }

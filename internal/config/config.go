@@ -16,6 +16,8 @@ type Config struct {
 	Database  DatabaseConfig
 	Auth      AuthConfig
 	RateLimit RateLimitConfig
+	Email     EmailConfig
+	SMTP      SMTPConfig
 }
 
 type RateLimitConfig struct {
@@ -56,6 +58,21 @@ type AuthConfig struct {
 	RegistrationEnabled bool
 }
 
+
+type EmailConfig struct {
+	VerificationEnabled   bool
+	VerificationTokenTTL  time.Duration
+	PasswordResetTokenTTL time.Duration
+}
+
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	From     string
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -93,6 +110,18 @@ func Load() (*Config, error) {
 			ForgotPasswordWindow: getEnvDurationWithDefault("RATE_LIMIT_FORGOT_PASSWORD_WINDOW", 15*time.Minute),
 			GlobalMax:            getEnvIntWithDefault("RATE_LIMIT_GLOBAL_MAX", 100),
 			GlobalWindow:         getEnvDurationWithDefault("RATE_LIMIT_GLOBAL_WINDOW", 1*time.Minute),
+		},
+		Email: EmailConfig{
+			VerificationEnabled:   getEnvBoolWithDefault("EMAIL_VERIFICATION_ENABLED", true),
+			VerificationTokenTTL:  getEnvDurationWithDefault("EMAIL_VERIFICATION_TOKEN_TTL", 24*time.Hour),
+			PasswordResetTokenTTL: getEnvDurationWithDefault("PASSWORD_RESET_TOKEN_TTL", 15*time.Minute),
+		},
+		SMTP: SMTPConfig{
+			Host:     os.Getenv("SMTP_HOST"),
+			Port:     getEnvIntWithDefault("SMTP_PORT", 587),
+			User:     os.Getenv("SMTP_USER"),
+			Password: os.Getenv("SMTP_PASSWORD"),
+			From:     getEnvWithDefault("SMTP_FROM", "noreply@example.com"),
 		},
 	}
 
