@@ -36,6 +36,10 @@ func (m *mockRefreshTokenRepo) RevokeBySessionID(ctx context.Context, sessionID 
 	return m.Called(ctx, sessionID).Error(0)
 }
 
+func (m *mockRefreshTokenRepo) RevokeByUserID(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockRefreshTokenRepo) RevokeWithTx(_ context.Context, _ pgx.Tx, _ string, _ *time.Time) error {
 	return nil
 }
@@ -63,6 +67,10 @@ func (m *mockSessionRepo) GetByID(ctx context.Context, id string) (*aservice.Ses
 
 func (m *mockSessionRepo) RevokeByID(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
+}
+
+func (m *mockSessionRepo) RevokeByUserID(_ context.Context, _ string) error {
+	return nil
 }
 
 // --- Tests ---

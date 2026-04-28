@@ -13,6 +13,7 @@ import (
 	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
+	emailsender "github.com/ilmannafi/fiber-boilerplate/internal/service/email"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
 	"github.com/jackc/pgx/v5/pgxpool"
 	zapmiddleware "github.com/gofiber/contrib/v3/zap"
@@ -107,9 +108,18 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		userRepo := userrepo.NewUserRepository(pool)
 		sessionRepo := authrepo.NewSessionRepository(pool)
 		refreshTokenRepo := authrepo.NewRefreshTokenRepository(pool)
+		emailVerificationTokenRepo := authrepo.NewEmailVerificationTokenRepository(pool)
+		passwordResetTokenRepo := authrepo.NewPasswordResetTokenRepository(pool)
 
 		tokenHelper := authservice.NewTokenHelper(cfg.Auth)
-		authSvc := authservice.NewAuthService(userRepo, sessionRepo, refreshTokenRepo, tokenHelper, cfg.Auth, logger, pool)
+		emailSender := emailsender.NewSMTPEmailSender(cfg.SMTP, logger)
+		authSvc := authservice.NewAuthService(
+			userRepo, sessionRepo, refreshTokenRepo,
+			emailVerificationTokenRepo, passwordResetTokenRepo,
+			tokenHelper, emailSender,
+			cfg.Auth, cfg.Email,
+			logger, pool,
+		)
 		authHandler := handler.NewAuthHandler(authSvc)
 
 		jwtMiddleware := middleware.JWTAuth(tokenHelper)
@@ -127,6 +137,19 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		authGroup.Post("/refresh", authHandler.Refresh)
 		authGroup.Post("/logout", authHandler.Logout)
 		authGroup.Get("/me", jwtMiddleware, authHandler.Me)
+
+		// Email verification and password reset routes (D-08, D-15)
+		authGroup.Post("/verify-email", authHandler.VerifyEmail)
+		authGroup.Post("/resend-verification", authHandler.ResendVerification)
+
+		// Forgot-password with rate limiter (SEC-02, D-22)
+		if forgotLimiter := middleware.NewForgotPasswordLimiter(cfg.RateLimit); forgotLimiter != nil {
+			authGroup.Post("/forgot-password", forgotLimiter, authHandler.ForgotPassword)
+		} else {
+			authGroup.Post("/forgot-password", authHandler.ForgotPassword)
+		}
+
+		authGroup.Post("/reset-password", authHandler.ResetPassword)
 	}
 
 	return app

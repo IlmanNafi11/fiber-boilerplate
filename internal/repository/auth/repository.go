@@ -166,3 +166,13 @@ func (r *RefreshTokenRepository) GetBySessionIDNewest(ctx context.Context, sessi
 	}
 	return t, nil
 }
+
+func (r *RefreshTokenRepository) RevokeByUserID(ctx context.Context, userID string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE refresh_tokens SET revoked_at = NOW()
+		 WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)
+		 AND revoked_at IS NULL`,
+		userID,
+	)
+	return err
+}

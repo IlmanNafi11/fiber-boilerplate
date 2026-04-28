@@ -55,6 +55,34 @@ func NewLoginLimiter(cfg config.RateLimitConfig) fiber.Handler {
 	})
 }
 
+
+
+// NewForgotPasswordLimiter creates a rate limiter for the forgot-password endpoint.
+// Uses IP+email key with IP-only fallback on parse failure (D-04, SEC-02).
+// Returns nil if cfg.ForgotPasswordMax is 0 (disabled).
+func NewForgotPasswordLimiter(cfg config.RateLimitConfig) fiber.Handler {
+	if cfg.ForgotPasswordMax == 0 {
+		return nil
+	}
+
+	return limiter.New(limiter.Config{
+		Max:        cfg.ForgotPasswordMax,
+		Expiration: cfg.ForgotPasswordWindow,
+		KeyGenerator: func(c fiber.Ctx) string {
+			type forgotBody struct {
+				Email string `json:"email"`
+			}
+			var body forgotBody
+			if err := c.Bind().JSON(&body); err == nil && body.Email != "" {
+				return c.IP() + ":" + strings.ToLower(body.Email)
+			}
+			return c.IP()
+		},
+		LimitReached:  makeLimitReachedHandler(cfg.ForgotPasswordWindow),
+		DisableHeaders: true,
+	})
+}
+
 // makeLimitReachedHandler creates a LimitReached handler that sets Retry-After
 // header and returns a 429 AppError through the standard error envelope.
 func makeLimitReachedHandler(window time.Duration) fiber.Handler {

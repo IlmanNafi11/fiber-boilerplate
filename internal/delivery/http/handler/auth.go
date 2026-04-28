@@ -85,3 +85,52 @@ func (h *AuthHandler) Me(c fiber.Ctx) error {
 
 	return response.OK(c, "user profile retrieved", userResp)
 }
+
+
+func (h *AuthHandler) VerifyEmail(c fiber.Ctx) error {
+	req := new(authdto.VerifyEmailRequest)
+	if err := c.Bind().JSON(req); err != nil {
+		return err
+	}
+
+	if err := h.authSvc.VerifyEmail(c.Context(), req.Token); err != nil {
+		return err
+	}
+
+	return response.OK(c, "email verified successfully", nil)
+}
+
+func (h *AuthHandler) ResendVerification(c fiber.Ctx) error {
+	req := new(authdto.ResendVerificationRequest)
+	if err := c.Bind().JSON(req); err != nil {
+		return err
+	}
+
+	_ = h.authSvc.ResendVerification(c.Context(), req.Email)
+
+	return response.OK(c, "If an account with that email exists and requires verification, a new email has been sent.", nil)
+}
+
+func (h *AuthHandler) ForgotPassword(c fiber.Ctx) error {
+	req := new(authdto.ForgotPasswordRequest)
+	if err := c.Bind().JSON(req); err != nil {
+		return err
+	}
+
+	_ = h.authSvc.ForgotPassword(c.Context(), req.Email)
+
+	return response.OK(c, "If an account with that email exists, a password reset email has been sent.", nil)
+}
+
+func (h *AuthHandler) ResetPassword(c fiber.Ctx) error {
+	req := new(authdto.ResetPasswordRequest)
+	if err := c.Bind().JSON(req); err != nil {
+		return err
+	}
+
+	if err := h.authSvc.ResetPassword(c.Context(), req.Token, req.NewPassword); err != nil {
+		return err
+	}
+
+	return response.OK(c, "Password has been reset successfully.", nil)
+}
