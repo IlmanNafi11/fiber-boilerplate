@@ -1,6 +1,7 @@
 package config
 
 import (
+	"time"
 	"os"
 	"testing"
 
@@ -35,6 +36,14 @@ func unsetTestDBEnv() {
 	os.Unsetenv("DB_MIN_CONNS")
 	os.Unsetenv("DB_MAX_CONN_IDLE_TIME")
 	os.Unsetenv("DB_MAX_CONN_LIFETIME")
+
+	// Rate limit env vars
+	os.Unsetenv("RATE_LIMIT_LOGIN_MAX")
+	os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW")
+	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX")
+	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
+	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
+	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -138,6 +147,14 @@ func TestDatabaseConfig_Defaults(t *testing.T) {
 	os.Unsetenv("DB_MIN_CONNS")
 	os.Unsetenv("DB_MAX_CONN_IDLE_TIME")
 	os.Unsetenv("DB_MAX_CONN_LIFETIME")
+
+	// Rate limit env vars
+	os.Unsetenv("RATE_LIMIT_LOGIN_MAX")
+	os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW")
+	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX")
+	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
+	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
+	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
 	defer unsetTestDBEnv()
 
 	cfg, err := Load()
@@ -189,4 +206,53 @@ func TestDatabaseConfig_MigrateDSN(t *testing.T) {
 
 	expected := "pgx5://user:pass@localhost:5432/testdb?sslmode=disable"
 	assert.Equal(t, expected, d.MigrateDSN())
+}
+
+func TestLoad_RateLimitDefaults(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	os.Unsetenv("APP_ENV")
+	os.Unsetenv("APP_PORT")
+	setTestDBEnv()
+	// Ensure rate limit env vars are unset to test defaults
+	os.Unsetenv("RATE_LIMIT_LOGIN_MAX")
+	os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW")
+	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX")
+	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
+	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
+	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, 5, cfg.RateLimit.LoginMax)
+	assert.Equal(t, 15*time.Minute, cfg.RateLimit.LoginWindow)
+	assert.Equal(t, 3, cfg.RateLimit.ForgotPasswordMax)
+	assert.Equal(t, 15*time.Minute, cfg.RateLimit.ForgotPasswordWindow)
+	assert.Equal(t, 100, cfg.RateLimit.GlobalMax)
+	assert.Equal(t, time.Minute, cfg.RateLimit.GlobalWindow)
+}
+
+func TestLoad_RateLimitCustom(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv()
+	t.Setenv("RATE_LIMIT_LOGIN_MAX", "10")
+	t.Setenv("RATE_LIMIT_LOGIN_WINDOW", "30m")
+	t.Setenv("RATE_LIMIT_FORGOT_PASSWORD_MAX", "5")
+	t.Setenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW", "1h")
+	t.Setenv("RATE_LIMIT_GLOBAL_MAX", "200")
+	t.Setenv("RATE_LIMIT_GLOBAL_WINDOW", "5m")
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, 10, cfg.RateLimit.LoginMax)
+	assert.Equal(t, 30*time.Minute, cfg.RateLimit.LoginWindow)
+	assert.Equal(t, 5, cfg.RateLimit.ForgotPasswordMax)
+	assert.Equal(t, time.Hour, cfg.RateLimit.ForgotPasswordWindow)
+	assert.Equal(t, 200, cfg.RateLimit.GlobalMax)
+	assert.Equal(t, 5*time.Minute, cfg.RateLimit.GlobalWindow)
 }
