@@ -86,7 +86,7 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		},
 	}))
 
-	// 5. Routes
+	// 5. Root routes — NOT rate-limited (D-14)
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendString("OK")
 	})
@@ -96,7 +96,13 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		panic("test panic")
 	})
 
-	// 6. Auth routes (only when pool is available)
+	// 6. API v1 group — global rate limiter (SEC-03, D-12)
+	apiV1 := app.Group("/api/v1")
+	if globalLimiter := middleware.NewGlobalLimiter(cfg.RateLimit); globalLimiter != nil {
+		apiV1.Use(globalLimiter)
+	}
+
+	// 7. Auth routes under api/v1 (D-12, D-15)
 	if pool != nil {
 		userRepo := userrepo.NewUserRepository(pool)
 		sessionRepo := authrepo.NewSessionRepository(pool)
@@ -108,9 +114,16 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 
 		jwtMiddleware := middleware.JWTAuth(tokenHelper)
 
-		authGroup := app.Group("/api/v1/auth")
+		authGroup := apiV1.Group("/auth")
+
+		// Login rate limiter (SEC-01, D-12) — per-route, before handler
+		if loginLimiter := middleware.NewLoginLimiter(cfg.RateLimit); loginLimiter != nil {
+			authGroup.Post("/login", loginLimiter, authHandler.Login)
+		} else {
+			authGroup.Post("/login", authHandler.Login)
+		}
+
 		authGroup.Post("/register", authHandler.Register)
-		authGroup.Post("/login", authHandler.Login)
 		authGroup.Post("/refresh", authHandler.Refresh)
 		authGroup.Post("/logout", authHandler.Logout)
 		authGroup.Get("/me", jwtMiddleware, authHandler.Me)
