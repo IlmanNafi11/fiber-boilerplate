@@ -11,18 +11,34 @@ import (
 	"github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	usermodel "github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
-	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 	"go.uber.org/zap"
 )
 
+// RefreshTokenRepo defines the interface for refresh token persistence.
+type RefreshTokenRepo interface {
+	GetByTokenHash(ctx context.Context, tokenHash string) (*aservice.RefreshToken, error)
+	Create(ctx context.Context, t *aservice.RefreshToken) error
+	RevokeBySessionID(ctx context.Context, sessionID string) error
+	RevokeWithTx(ctx context.Context, tx pgx.Tx, id string, graceUntil *time.Time) error
+	CreateWithTx(ctx context.Context, tx pgx.Tx, t *aservice.RefreshToken) error
+}
+
+// SessionRepo defines the interface for session persistence.
+type SessionRepo interface {
+	Create(ctx context.Context, s *aservice.Session) error
+	GetByID(ctx context.Context, id string) (*aservice.Session, error)
+	RevokeByID(ctx context.Context, id string) error
+}
+
 type AuthService struct {
 	userRepo         *userrepo.UserRepository
-	sessionRepo      *authrepo.SessionRepository
-	refreshTokenRepo *authrepo.RefreshTokenRepository
+	sessionRepo      SessionRepo
+	refreshTokenRepo RefreshTokenRepo
 	tokenHelper      *TokenHelper
 	cfg              config.AuthConfig
 	logger           *zap.Logger
@@ -31,8 +47,8 @@ type AuthService struct {
 
 func NewAuthService(
 	userRepo *userrepo.UserRepository,
-	sessionRepo *authrepo.SessionRepository,
-	refreshTokenRepo *authrepo.RefreshTokenRepository,
+	sessionRepo SessionRepo,
+	refreshTokenRepo RefreshTokenRepo,
 	tokenHelper *TokenHelper,
 	cfg config.AuthConfig,
 	logger *zap.Logger,
