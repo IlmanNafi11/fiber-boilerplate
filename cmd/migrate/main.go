@@ -19,14 +19,21 @@ func main() {
 
 	args := flag.Args()
 	if len(args) == 0 {
-		fmt.Println("usage: migrate <up|down|version|force> [flags]")
-		fmt.Println("")
-		fmt.Println("commands:")
-		fmt.Println("  up              apply all pending migrations")
-		fmt.Println("  down            rollback last migration (use -all for all)")
-		fmt.Println("  version         show current migration version")
-		fmt.Println("  force <version> force migration version (dirty state recovery)")
+		printUsage()
 		os.Exit(1)
+	}
+
+	command := args[0]
+
+	// Validate arguments that don't need DB access before loading config.
+	switch command {
+	case "force":
+		if len(args) < 2 {
+			log.Fatal("force requires a version argument (e.g., migrate force 1)")
+		}
+		if _, err := strconv.Atoi(args[1]); err != nil {
+			log.Fatalf("force: invalid version %q: must be a number", args[1])
+		}
 	}
 
 	cfg, err := config.Load()
@@ -43,7 +50,6 @@ func main() {
 	}
 	defer m.Close()
 
-	command := args[0]
 	switch command {
 	case "up":
 		if err := m.Up(); err != nil && err != migrate.ErrNoChange {
@@ -88,13 +94,7 @@ func main() {
 		fmt.Printf("current version: %d (%s)\n", version, dirtyStatus)
 
 	case "force":
-		if len(args) < 2 {
-			log.Fatal("force requires a version argument (e.g., migrate force 1)")
-		}
-		forceVersion, err := strconv.Atoi(args[1])
-		if err != nil {
-			log.Fatalf("force: invalid version %q: must be a number", args[1])
-		}
+		forceVersion, _ := strconv.Atoi(args[1])
 		if err := m.Force(forceVersion); err != nil {
 			log.Fatalf("force version failed: %v", err)
 		}
@@ -104,4 +104,14 @@ func main() {
 		fmt.Printf("unknown command: %s\n", command)
 		os.Exit(1)
 	}
+}
+
+func printUsage() {
+	fmt.Println("usage: migrate <up|down|version|force> [flags]")
+	fmt.Println("")
+	fmt.Println("commands:")
+	fmt.Println("  up              apply all pending migrations")
+	fmt.Println("  down            rollback last migration (use -all for all)")
+	fmt.Println("  version         show current migration version")
+	fmt.Println("  force <version> force migration version (dirty state recovery)")
 }
