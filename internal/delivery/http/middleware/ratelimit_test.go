@@ -197,3 +197,87 @@ func TestLimitReachedHandler_Returns429AppError(t *testing.T) {
 	assert.Equal(t, "too many requests, please try again later", result["message"])
 	assert.Equal(t, "TOO_MANY_REQUESTS", result["code"])
 }
+
+
+// --- Forgot-password rate limiter tests ---
+
+func TestNewForgotPasswordLimiter_DisabledWhenMaxZero(t *testing.T) {
+	cfg := config.RateLimitConfig{ForgotPasswordMax: 0}
+	limiter := NewForgotPasswordLimiter(cfg)
+	assert.Nil(t, limiter, "forgot-password limiter should be nil when ForgotPasswordMax is 0")
+}
+
+func TestNewForgotPasswordLimiter_EnabledWhenMaxPositive(t *testing.T) {
+	cfg := config.RateLimitConfig{
+		ForgotPasswordMax:    3,
+		ForgotPasswordWindow: 15 * time.Minute,
+	}
+	limiter := NewForgotPasswordLimiter(cfg)
+	assert.NotNil(t, limiter, "forgot-password limiter should not be nil when ForgotPasswordMax > 0")
+}
+
+func TestForgotPasswordLimiter_UsesIPAndEmailKey(t *testing.T) {
+	cfg := config.RateLimitConfig{
+		ForgotPasswordMax:    2,
+		ForgotPasswordWindow: time.Minute,
+	}
+
+	app := newTestApp()
+	app.Post("/forgot-password", NewForgotPasswordLimiter(cfg), func(c fiber.Ctx) error {
+		return c.SendString("ok")
+	})
+
+	// 2 requests with email A — should succeed (bucket: IP:emailA)
+	for i := 0; i < 2; i++ {
+		body := strings.NewReader(`{"email":"userA@test.com"}`)
+		req := httptest.NewRequest("POST", "/forgot-password", body)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, 200, resp.StatusCode, "email A request %d should succeed", i+1)
+	}
+
+	// 2 requests with email B — should succeed (separate bucket: IP:emailB)
+	for i := 0; i < 2; i++ {
+		body := strings.NewReader(`{"email":"userB@test.com"}`)
+		req := httptest.NewRequest("POST", "/forgot-password", body)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, 200, resp.StatusCode, "email B request %d should succeed", i+1)
+	}
+
+	// 3rd request with email A — should be blocked (bucket A exhausted)
+	body := strings.NewReader(`{"email":"userA@test.com"}`)
+	req := httptest.NewRequest("POST", "/forgot-password", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 429, resp.StatusCode, "email A bucket should be exhausted")
+}
+
+func TestForgotPasswordLimiter_FallsBackToIPOnly(t *testing.T) {
+	cfg := config.RateLimitConfig{
+		ForgotPasswordMax:    2,
+		ForgotPasswordWindow: time.Minute,
+	}
+
+	app := newTestApp()
+	app.Post("/forgot-password", NewForgotPasswordLimiter(cfg), func(c fiber.Ctx) error {
+		return c.SendString("ok")
+	})
+
+	// 2 requests without body — IP-only fallback bucket
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest("POST", "/forgot-password", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, 200, resp.StatusCode, "IP-only request %d should succeed", i+1)
+	}
+
+	// 3rd request without body — should be blocked
+	req := httptest.NewRequest("POST", "/forgot-password", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 429, resp.StatusCode, "IP-only bucket should be exhausted")
+}
