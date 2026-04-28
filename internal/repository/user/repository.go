@@ -48,7 +48,7 @@ func (r *UserRepository) Create(ctx context.Context, u *user.User) error {
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, role, is_active, created_at, updated_at
+		`SELECT id, email, password_hash, role, is_active, email_verified_at, created_at, updated_at
 		 FROM users WHERE email = $1`,
 		email,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt)
@@ -65,7 +65,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.Us
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*user.User, error) {
 	u := &user.User{}
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, role, is_active, created_at, updated_at
+		`SELECT id, email, password_hash, role, is_active, email_verified_at, created_at, updated_at
 		 FROM users WHERE id = $1`,
 		id,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt)
