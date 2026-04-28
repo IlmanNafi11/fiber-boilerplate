@@ -12,9 +12,19 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Auth     AuthConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Auth      AuthConfig
+	RateLimit RateLimitConfig
+}
+
+type RateLimitConfig struct {
+	LoginMax             int
+	LoginWindow          time.Duration
+	ForgotPasswordMax    int
+	ForgotPasswordWindow time.Duration
+	GlobalMax            int
+	GlobalWindow         time.Duration
 }
 
 type ServerConfig struct {
@@ -75,6 +85,14 @@ func Load() (*Config, error) {
 			JWTRefreshTTL:      getEnvDurationWithDefault("JWT_REFRESH_TTL", 168*time.Hour),
 			RefreshGracePeriod: getEnvDurationWithDefault("JWT_REFRESH_GRACE_PERIOD", 30*time.Second),
 			RegistrationEnabled: getEnvBoolWithDefault("REGISTRATION_ENABLED", true),
+		},
+		RateLimit: RateLimitConfig{
+			LoginMax:             getEnvIntWithDefault("RATE_LIMIT_LOGIN_MAX", 5),
+			LoginWindow:          getEnvDurationWithDefault("RATE_LIMIT_LOGIN_WINDOW", 15*time.Minute),
+			ForgotPasswordMax:    getEnvIntWithDefault("RATE_LIMIT_FORGOT_PASSWORD_MAX", 3),
+			ForgotPasswordWindow: getEnvDurationWithDefault("RATE_LIMIT_FORGOT_PASSWORD_WINDOW", 15*time.Minute),
+			GlobalMax:            getEnvIntWithDefault("RATE_LIMIT_GLOBAL_MAX", 100),
+			GlobalWindow:         getEnvDurationWithDefault("RATE_LIMIT_GLOBAL_WINDOW", 1*time.Minute),
 		},
 	}
 
