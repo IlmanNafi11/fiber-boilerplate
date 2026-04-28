@@ -14,6 +14,8 @@ import (
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
 	emailsender "github.com/ilmannafi/fiber-boilerplate/internal/service/email"
+	productrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/product"
+	productservice "github.com/ilmannafi/fiber-boilerplate/internal/service/product"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
 	"github.com/jackc/pgx/v5/pgxpool"
 	zapmiddleware "github.com/gofiber/contrib/v3/zap"
@@ -150,6 +152,18 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		}
 
 		authGroup.Post("/reset-password", authHandler.ResetPassword)
+
+		// 8. Product routes under api/v1 (PROD-01 through PROD-06)
+		productRepo := productrepo.NewProductRepository(pool)
+		productSvc := productservice.NewProductService(productRepo)
+		productHandler := handler.NewProductHandler(productSvc)
+
+		productGroup := apiV1.Group("/products", jwtMiddleware)
+		productGroup.Post("/", productHandler.Create)
+		productGroup.Get("/", productHandler.List)
+		productGroup.Get("/:id", productHandler.GetByID)
+		productGroup.Patch("/:id", productHandler.Update)
+		productGroup.Delete("/:id", productHandler.Delete)
 	}
 
 	return app
