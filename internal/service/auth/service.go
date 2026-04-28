@@ -276,6 +276,20 @@ func (s *AuthService) Logout(ctx context.Context, plainToken string) error {
 		return errx.Unauthorized("invalid refresh token")
 	}
 
+	// Reject if the refresh token itself was already revoked
+	if token.RevokedAt != nil {
+		return errx.Unauthorized("invalid refresh token")
+	}
+
+	// Check if the session is already revoked (e.g., from a previous logout)
+	session, err := s.sessionRepo.GetByID(ctx, token.SessionID)
+	if err != nil {
+		return errx.Unauthorized("invalid refresh token")
+	}
+	if session.RevokedAt != nil {
+		return errx.Unauthorized("invalid refresh token")
+	}
+
 	// Revoke entire session
 	if err := s.sessionRepo.RevokeByID(ctx, token.SessionID); err != nil {
 		return errx.Internal("logout failed", err.Error())
