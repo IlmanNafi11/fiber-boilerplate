@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
@@ -13,6 +14,7 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Auth     AuthConfig
 }
 
 type ServerConfig struct {
@@ -33,6 +35,15 @@ type DatabaseConfig struct {
 	MinConns        int
 	MaxConnIdleTime string
 	MaxConnLifetime string
+}
+
+type AuthConfig struct {
+	JWTSecret          string        `validate:"required"`
+	JWTSecretPrevious  string
+	JWTAccessTTL       time.Duration
+	JWTRefreshTTL      time.Duration
+	RefreshGracePeriod time.Duration
+	RegistrationEnabled bool
 }
 
 func Load() (*Config, error) {
@@ -56,6 +67,14 @@ func Load() (*Config, error) {
 			MinConns:        getEnvIntWithDefault("DB_MIN_CONNS", 5),
 			MaxConnIdleTime: getEnvWithDefault("DB_MAX_CONN_IDLE_TIME", "30m"),
 			MaxConnLifetime: getEnvWithDefault("DB_MAX_CONN_LIFETIME", "2h"),
+		},
+		Auth: AuthConfig{
+			JWTSecret:          os.Getenv("JWT_SECRET"),
+			JWTSecretPrevious:  os.Getenv("JWT_SECRET_PREVIOUS"),
+			JWTAccessTTL:       getEnvDurationWithDefault("JWT_ACCESS_TTL", 15*time.Minute),
+			JWTRefreshTTL:      getEnvDurationWithDefault("JWT_REFRESH_TTL", 168*time.Hour),
+			RefreshGracePeriod: getEnvDurationWithDefault("JWT_REFRESH_GRACE_PERIOD", 30*time.Second),
+			RegistrationEnabled: getEnvBoolWithDefault("REGISTRATION_ENABLED", true),
 		},
 	}
 
@@ -84,6 +103,30 @@ func getEnvIntWithDefault(key string, defaultVal int) int {
 		return defaultVal
 	}
 	return n
+}
+
+func getEnvDurationWithDefault(key string, defaultVal time.Duration) time.Duration {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultVal
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		return defaultVal
+	}
+	return d
+}
+
+func getEnvBoolWithDefault(key string, defaultVal bool) bool {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultVal
+	}
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return defaultVal
+	}
+	return b
 }
 
 func (d *DatabaseConfig) DSN() string {
