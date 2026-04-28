@@ -1,9 +1,14 @@
 package http
 
 import (
+	"fmt"
+	"reflect"
 	"runtime/debug"
+	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
+	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
 	zapmiddleware "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -12,9 +17,30 @@ import (
 	"go.uber.org/zap"
 )
 
+// structValidator adapts go-playground/validator to fiber's StructValidator interface.
+type structValidator struct {
+	validate *validator.Validate
+}
+
+func (v *structValidator) Validate(out any) error {
+	return v.validate.Struct(out)
+}
+
 func NewServer(cfg *config.Config, logger *zap.Logger) *fiber.App {
+	// Create validator with JSON tag name resolution
+	v := validator.New()
+	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "-" {
+			return ""
+		}
+		return name
+	})
+
 	app := fiber.New(fiber.Config{
-		AppName: cfg.Server.Name,
+		AppName:         cfg.Server.Name,
+		ErrorHandler:    response.ErrorHandler(logger),
+		StructValidator: &structValidator{validate: v},
 	})
 
 	// Order per D-15: recover -> requestid -> cors -> logger -> routes
@@ -29,7 +55,7 @@ func NewServer(cfg *config.Config, logger *zap.Logger) *fiber.App {
 			)
 		},
 		PanicHandler: func(c fiber.Ctx, v any) error {
-			return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return fmt.Errorf("internal error")
 		},
 	}))
 

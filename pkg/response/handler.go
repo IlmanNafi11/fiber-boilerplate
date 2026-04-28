@@ -1,7 +1,6 @@
 package response
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -69,36 +68,6 @@ func ErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 				Errors:  []ErrorItem{{Message: "Internal Server Error"}},
 			})
 		}
-	}
-}
-
-// httpStatusToCode converts an HTTP status code to a SNAKE_CASE error code.
-func httpStatusToCode(status int) string {
-	switch status {
-	case 400:
-		return "BAD_REQUEST"
-	case 401:
-		return "UNAUTHORIZED"
-	case 403:
-		return "FORBIDDEN"
-	case 404:
-		return "NOT_FOUND"
-	case 405:
-		return "METHOD_NOT_ALLOWED"
-	case 409:
-		return "CONFLICT"
-	case 422:
-		return "UNPROCESSABLE_ENTITY"
-	case 429:
-		return "TOO_MANY_REQUESTS"
-	case 500:
-		return "INTERNAL_ERROR"
-	case 502:
-		return "BAD_GATEWAY"
-	case 503:
-		return "SERVICE_UNAVAILABLE"
-	default:
-		return fmt.Sprintf("HTTP_%d", status)
 	}
 }
 
