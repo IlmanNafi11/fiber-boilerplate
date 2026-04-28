@@ -1,7 +1,6 @@
 package http
 
 import (
-	"github.com/gofiber/fiber/v3"
 	"encoding/json"
 	"io"
 	"net/http/httptest"
@@ -9,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v3"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
@@ -29,7 +29,7 @@ func testConfig(allowedOrigins string) *config.Config {
 }
 
 func TestRecover(t *testing.T) {
-	app := NewServer(testConfig("*"), zap.NewNop())
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 	req := httptest.NewRequest("GET", "/panic", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestRecover(t *testing.T) {
 }
 
 func TestRequestID(t *testing.T) {
-	app := NewServer(testConfig("*"), zap.NewNop())
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 	req := httptest.NewRequest("GET", "/", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestRequestID(t *testing.T) {
 }
 
 func TestCORS_AllowedOrigin(t *testing.T) {
-	app := NewServer(testConfig("http://localhost:3000"), zap.NewNop())
+	app := NewServer(testConfig("http://localhost:3000"), zap.NewNop(), nil)
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	resp, err := app.Test(req)
@@ -68,7 +68,7 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 }
 
 func TestCORS_DisallowedOrigin(t *testing.T) {
-	app := NewServer(testConfig("http://localhost:3000"), zap.NewNop())
+	app := NewServer(testConfig("http://localhost:3000"), zap.NewNop(), nil)
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Origin", "http://evil.com")
 	resp, err := app.Test(req)
@@ -77,7 +77,7 @@ func TestCORS_DisallowedOrigin(t *testing.T) {
 }
 
 func TestErrorHandler_AppError(t *testing.T) {
-	app := NewServer(testConfig("*"), zap.NewNop())
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 	app.Get("/test", func(c fiber.Ctx) error {
 		return errx.BadRequest("invalid input")
 	})
@@ -100,7 +100,7 @@ func TestErrorHandler_AppError(t *testing.T) {
 }
 
 func TestErrorHandler_ValidationErrors(t *testing.T) {
-	app := NewServer(testConfig("*"), zap.NewNop())
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 
 	type testInput struct {
 		Email string `validate:"required,email" json:"email"`
@@ -132,7 +132,7 @@ func TestErrorHandler_ValidationErrors(t *testing.T) {
 }
 
 func TestSuccessHelper_OK(t *testing.T) {
-	app := NewServer(testConfig("*"), zap.NewNop())
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 	app.Get("/test", func(c fiber.Ctx) error {
 		return response.OK(c, "test message", map[string]string{"key": "value"})
 	})

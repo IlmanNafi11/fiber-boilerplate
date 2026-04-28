@@ -34,8 +34,8 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 4. Create Fiber server with middleware chain
-	app := http.NewServer(cfg, appLogger)
+	// 4. Create Fiber server with middleware chain and auth routes
+	app := http.NewServer(cfg, appLogger, pool)
 
 	// 5. Start server in goroutine
 	go func() {

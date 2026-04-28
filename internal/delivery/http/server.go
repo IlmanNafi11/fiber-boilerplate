@@ -8,7 +8,13 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
+	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/handler"
+	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/middleware"
+	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
+	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
+	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
+	"github.com/jackc/pgx/v5/pgxpool"
 	zapmiddleware "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -26,7 +32,7 @@ func (v *structValidator) Validate(out any) error {
 	return v.validate.Struct(out)
 }
 
-func NewServer(cfg *config.Config, logger *zap.Logger) *fiber.App {
+func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fiber.App {
 	// Create validator with JSON tag name resolution
 	v := validator.New()
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
@@ -89,6 +95,26 @@ func NewServer(cfg *config.Config, logger *zap.Logger) *fiber.App {
 	app.Get("/panic", func(c fiber.Ctx) error {
 		panic("test panic")
 	})
+
+	// 6. Auth routes (only when pool is available)
+	if pool != nil {
+		userRepo := userrepo.NewUserRepository(pool)
+		sessionRepo := authrepo.NewSessionRepository(pool)
+		refreshTokenRepo := authrepo.NewRefreshTokenRepository(pool)
+
+		tokenHelper := authservice.NewTokenHelper(cfg.Auth)
+		authSvc := authservice.NewAuthService(userRepo, sessionRepo, refreshTokenRepo, tokenHelper, cfg.Auth, logger, pool)
+		authHandler := handler.NewAuthHandler(authSvc)
+
+		jwtMiddleware := middleware.JWTAuth(tokenHelper)
+
+		authGroup := app.Group("/api/v1/auth")
+		authGroup.Post("/register", authHandler.Register)
+		authGroup.Post("/login", authHandler.Login)
+		authGroup.Post("/refresh", authHandler.Refresh)
+		authGroup.Post("/logout", authHandler.Logout)
+		authGroup.Get("/me", jwtMiddleware, authHandler.Me)
+	}
 
 	return app
 }

@@ -10,6 +10,7 @@ import (
 
 // setTestDBEnv sets all required DB env vars for testing.
 func setTestDBEnv() {
+	os.Setenv("JWT_SECRET", "test-jwt-secret-key")
 	os.Setenv("DB_HOST", "localhost")
 	os.Setenv("DB_USER", "testuser")
 	os.Setenv("DB_PASSWORD", "testpass")
@@ -18,6 +19,12 @@ func setTestDBEnv() {
 
 // unsetTestDBEnv clears all DB env vars.
 func unsetTestDBEnv() {
+	os.Unsetenv("JWT_SECRET")
+	os.Unsetenv("JWT_SECRET_PREVIOUS")
+	os.Unsetenv("JWT_ACCESS_TTL")
+	os.Unsetenv("JWT_REFRESH_TTL")
+	os.Unsetenv("JWT_REFRESH_GRACE_PERIOD")
+	os.Unsetenv("REGISTRATION_ENABLED")
 	os.Unsetenv("DB_HOST")
 	os.Unsetenv("DB_PORT")
 	os.Unsetenv("DB_USER")
@@ -96,6 +103,7 @@ func TestGetAllowedOrigins_CommaSeparated(t *testing.T) {
 
 func TestDatabaseConfig_RequiredFields(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
+	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
 	t.Setenv("DB_HOST", "db.example.com")
 	t.Setenv("DB_PORT", "5433")
 	t.Setenv("DB_USER", "admin")
@@ -118,6 +126,7 @@ func TestDatabaseConfig_RequiredFields(t *testing.T) {
 
 func TestDatabaseConfig_Defaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
+	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
 	// Set only required DB fields, leave optional ones unset
 	os.Setenv("DB_HOST", "localhost")
 	os.Setenv("DB_USER", "user")
