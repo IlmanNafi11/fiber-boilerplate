@@ -44,6 +44,18 @@ func unsetTestDBEnv() {
 	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
 	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
 	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
+
+	// Email config env vars
+	os.Unsetenv("EMAIL_VERIFICATION_ENABLED")
+	os.Unsetenv("EMAIL_VERIFICATION_TOKEN_TTL")
+	os.Unsetenv("PASSWORD_RESET_TOKEN_TTL")
+
+	// SMTP env vars
+	os.Unsetenv("SMTP_HOST")
+	os.Unsetenv("SMTP_PORT")
+	os.Unsetenv("SMTP_USER")
+	os.Unsetenv("SMTP_PASSWORD")
+	os.Unsetenv("SMTP_FROM")
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -255,4 +267,76 @@ func TestLoad_RateLimitCustom(t *testing.T) {
 	assert.Equal(t, time.Hour, cfg.RateLimit.ForgotPasswordWindow)
 	assert.Equal(t, 200, cfg.RateLimit.GlobalMax)
 	assert.Equal(t, 5*time.Minute, cfg.RateLimit.GlobalWindow)
+}
+
+func TestLoad_EmailConfigDefaults(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	os.Unsetenv("APP_ENV")
+	os.Unsetenv("APP_PORT")
+	setTestDBEnv()
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.True(t, cfg.Email.VerificationEnabled, "default VerificationEnabled should be true")
+	assert.Equal(t, 24*time.Hour, cfg.Email.VerificationTokenTTL, "default VerificationTokenTTL should be 24h")
+	assert.Equal(t, 15*time.Minute, cfg.Email.PasswordResetTokenTTL, "default PasswordResetTokenTTL should be 15m")
+}
+
+func TestLoad_EmailConfigCustom(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv()
+	t.Setenv("EMAIL_VERIFICATION_ENABLED", "false")
+	t.Setenv("EMAIL_VERIFICATION_TOKEN_TTL", "48h")
+	t.Setenv("PASSWORD_RESET_TOKEN_TTL", "30m")
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.False(t, cfg.Email.VerificationEnabled, "VerificationEnabled should be false when env is false")
+	assert.Equal(t, 48*time.Hour, cfg.Email.VerificationTokenTTL, "VerificationTokenTTL should be 48h")
+	assert.Equal(t, 30*time.Minute, cfg.Email.PasswordResetTokenTTL, "PasswordResetTokenTTL should be 30m")
+}
+
+func TestLoad_SMTPConfigDefaults(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	os.Unsetenv("APP_ENV")
+	os.Unsetenv("APP_PORT")
+	setTestDBEnv()
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, "", cfg.SMTP.Host, "default SMTP Host should be empty")
+	assert.Equal(t, 587, cfg.SMTP.Port, "default SMTP Port should be 587")
+	assert.Equal(t, "", cfg.SMTP.User, "default SMTP User should be empty")
+	assert.Equal(t, "", cfg.SMTP.Password, "default SMTP Password should be empty")
+	assert.Equal(t, "noreply@example.com", cfg.SMTP.From, "default SMTP From should be noreply@example.com")
+}
+
+func TestLoad_SMTPConfigCustom(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv()
+	t.Setenv("SMTP_HOST", "mail.example.com")
+	t.Setenv("SMTP_PORT", "2525")
+	t.Setenv("SMTP_USER", "postmaster@example.com")
+	t.Setenv("SMTP_PASSWORD", "smtp-secret")
+	t.Setenv("SMTP_FROM", "no-reply@example.com")
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, "mail.example.com", cfg.SMTP.Host)
+	assert.Equal(t, 2525, cfg.SMTP.Port)
+	assert.Equal(t, "postmaster@example.com", cfg.SMTP.User)
+	assert.Equal(t, "smtp-secret", cfg.SMTP.Password)
+	assert.Equal(t, "no-reply@example.com", cfg.SMTP.From)
 }
