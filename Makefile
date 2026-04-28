@@ -13,4 +13,4 @@ migrate-version:
 	go run ./cmd/migrate/main.go version
 
 migrate-force:
-	go run ./cmd/migrate/main.go force -version $(V)
+	go run ./cmd/migrate/main.go force $(V)
