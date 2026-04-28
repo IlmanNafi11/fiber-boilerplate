@@ -167,7 +167,10 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 			}
 		}
 	} else {
-		_ = s.userRepo.UpdateEmailVerifiedAt(ctx, u.ID)
+		if err := s.userRepo.UpdateEmailVerifiedAt(ctx, u.ID); err == nil {
+		now := time.Now()
+		u.EmailVerifiedAt = &now
+	}
 	}
 
 	u.PasswordHash = ""

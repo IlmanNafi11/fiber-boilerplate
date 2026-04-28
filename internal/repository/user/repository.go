@@ -23,11 +23,12 @@ func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
 func (r *UserRepository) Create(ctx context.Context, u *user.User) error {
 	id := uuid.New().String()
 
-	_, err := r.pool.Exec(ctx,
+	err := r.pool.QueryRow(ctx,
 		`INSERT INTO users (id, email, password_hash, role, is_active)
-		 VALUES ($1, $2, $3, $4, $5)`,
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING email_verified_at, created_at, updated_at`,
 		id, u.Email, u.PasswordHash, u.Role, u.IsActive,
-	)
+	).Scan(&u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
