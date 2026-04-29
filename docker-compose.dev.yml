@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile.dev
     volumes:
       - .:/app
+    entrypoint: ["./docker-entrypoint.dev.sh"]
+    command: ["air"]
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
