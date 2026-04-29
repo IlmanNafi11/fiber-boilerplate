@@ -99,6 +99,10 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		panic("test panic")
 	})
 
+	// Health check — not rate-limited, no auth required (D-18, TOOL-04)
+	healthHandler := handler.NewHealthHandler(pool)
+	app.Get("/health", healthHandler.Check)
+
 	// 6. API v1 group — global rate limiter (SEC-03, D-12)
 	apiV1 := app.Group("/api/v1")
 	if globalLimiter := middleware.NewGlobalLimiter(cfg.RateLimit); globalLimiter != nil {
