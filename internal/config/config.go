@@ -199,6 +199,23 @@ func (d *DatabaseConfig) MigrateDSN() string {
 		d.User, d.Password, d.Host, d.Port, d.Name, d.SSLMode)
 }
 
+// SwaggerEnabled reports whether Swagger UI should be served.
+// Uses SWAGGER_ENABLED env var with APP_ENV fallback:
+//   - If SWAGGER_ENABLED is set → use that value
+//   - If APP_ENV == "production" → false
+//   - Otherwise → true (default on in development)
+func (s *ServerConfig) SwaggerEnabled() bool {
+	val := os.Getenv("SWAGGER_ENABLED")
+	if val != "" {
+		enabled, err := strconv.ParseBool(val)
+		if err != nil {
+			return false
+		}
+		return enabled
+	}
+	return s.Env != "production"
+}
+
 func (s *ServerConfig) GetAllowedOrigins() []string {
 	if s.AllowedOrigins == "" {
 		return []string{"*"}
