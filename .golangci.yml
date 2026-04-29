@@ -13,6 +13,8 @@ linters:
     - staticcheck
     - ineffassign
     - unused
+    # Security-focused analysis
+    - gosec
 
 linters-settings:
   errcheck:
