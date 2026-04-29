@@ -111,6 +111,9 @@ func seedAdmin(ctx context.Context, tx pgx.Tx, cfg config.SeederConfig, logger *
 func seedDemoUsers(ctx context.Context, tx pgx.Tx, cfg config.SeederConfig, logger *zap.Logger) ([]string, int, int, error) {
 	baseEmail := cfg.DemoEmail
 	atIdx := strings.Index(baseEmail, "@")
+	if atIdx <= 0 || atIdx >= len(baseEmail)-1 {
+		return nil, 0, 0, fmt.Errorf("DEMO_EMAIL %q is not a valid email address", baseEmail)
+	}
 	localPart := baseEmail[:atIdx]
 	domain := baseEmail[atIdx+1:]
 
