@@ -119,3 +119,37 @@ func TestRun_InvalidAdminPassword(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "ADMIN_PASSWORD invalid")
 }
+
+// --- seedDemoUsers email validation tests ---
+// seedDemoUsers validates DEMO_EMAIL format BEFORE any DB operations,
+// so passing nil tx is safe — execution returns before tx is used.
+
+func TestSeedDemoUsers_InvalidEmail_NoAtSign(t *testing.T) {
+	cfg := config.SeederConfig{
+		DemoEmail:    "notanemail",
+		DemoPassword: "changeme123",
+	}
+	_, _, _, err := seedDemoUsers(context.TODO(), nil, cfg, zap.NewNop())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a valid email address")
+}
+
+func TestSeedDemoUsers_InvalidEmail_AtSignAtStart(t *testing.T) {
+	cfg := config.SeederConfig{
+		DemoEmail:    "@example.com",
+		DemoPassword: "changeme123",
+	}
+	_, _, _, err := seedDemoUsers(context.TODO(), nil, cfg, zap.NewNop())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a valid email address")
+}
+
+func TestSeedDemoUsers_InvalidEmail_AtSignAtEnd(t *testing.T) {
+	cfg := config.SeederConfig{
+		DemoEmail:    "user@",
+		DemoPassword: "changeme123",
+	}
+	_, _, _, err := seedDemoUsers(context.TODO(), nil, cfg, zap.NewNop())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a valid email address")
+}
