@@ -56,6 +56,12 @@ func unsetTestDBEnv() {
 	os.Unsetenv("SMTP_USER")
 	os.Unsetenv("SMTP_PASSWORD")
 	os.Unsetenv("SMTP_FROM")
+
+	// Seeder env vars
+	os.Unsetenv("ADMIN_EMAIL")
+	os.Unsetenv("ADMIN_PASSWORD")
+	os.Unsetenv("DEMO_EMAIL")
+	os.Unsetenv("DEMO_PASSWORD")
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -339,4 +345,45 @@ func TestLoad_SMTPConfigCustom(t *testing.T) {
 	assert.Equal(t, "postmaster@example.com", cfg.SMTP.User)
 	assert.Equal(t, "smtp-secret", cfg.SMTP.Password)
 	assert.Equal(t, "no-reply@example.com", cfg.SMTP.From)
+}
+
+func TestLoad_SeederConfigDefaults(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	os.Unsetenv("APP_ENV")
+	os.Unsetenv("APP_PORT")
+	setTestDBEnv()
+	// Ensure seeder env vars are unset
+	os.Unsetenv("ADMIN_EMAIL")
+	os.Unsetenv("ADMIN_PASSWORD")
+	os.Unsetenv("DEMO_EMAIL")
+	os.Unsetenv("DEMO_PASSWORD")
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, "", cfg.Seeder.AdminEmail, "default AdminEmail should be empty")
+	assert.Equal(t, "", cfg.Seeder.AdminPassword, "default AdminPassword should be empty")
+	assert.Equal(t, "", cfg.Seeder.DemoEmail, "default DemoEmail should be empty")
+	assert.Equal(t, "", cfg.Seeder.DemoPassword, "default DemoPassword should be empty")
+}
+
+func TestLoad_SeederConfigCustom(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv()
+	t.Setenv("ADMIN_EMAIL", "admin@test.com")
+	t.Setenv("ADMIN_PASSWORD", "admin123")
+	t.Setenv("DEMO_EMAIL", "demo@test.com")
+	t.Setenv("DEMO_PASSWORD", "demo123")
+	defer unsetTestDBEnv()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, "admin@test.com", cfg.Seeder.AdminEmail)
+	assert.Equal(t, "admin123", cfg.Seeder.AdminPassword)
+	assert.Equal(t, "demo@test.com", cfg.Seeder.DemoEmail)
+	assert.Equal(t, "demo123", cfg.Seeder.DemoPassword)
 }
