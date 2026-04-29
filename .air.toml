@@ -1,0 +1,30 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Binary output path
+  bin = "./tmp/main"
+  # Build command — build server binary
+  cmd = "go build -o ./tmp/main ./cmd/server/"
+  # Debounce delay in milliseconds (D-10: 1 second)
+  delay = 1000
+  # Files to exclude from watching
+  exclude_dir = ["tmp", "vendor", "db", "bin", ".planning"]
+  # Regex for excluding test files from triggering rebuild
+  exclude_regex = ["_test\\.go$"]
+  # File extensions to watch
+  include_ext = ["go", "toml", "env"]
+  # Specific files to watch
+  include_file = ["go.mod", "go.sum", ".env"]
+  # Kill delay (how long to wait after SIGTERM before SIGKILL)
+  kill_delay = "0s"
+  # Send interrupt signal (SIGINT) before killing
+  send_interrupt = false
+
+[log]
+  # Show timestamps in Air log output
+  time = true
+
+[misc]
+  # Clean up tmp directory on exit
+  clean_on_exit = true
