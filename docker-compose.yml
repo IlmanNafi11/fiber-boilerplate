@@ -26,7 +26,7 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM:-noreply@example.com}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme123}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
       - DEMO_EMAIL=${DEMO_EMAIL:-}
       - DEMO_PASSWORD=${DEMO_PASSWORD:-}
       - AUTO_MIGRATE=true
