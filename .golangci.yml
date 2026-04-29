@@ -1,0 +1,30 @@
+run:
+  timeout: 5m
+  go: "1.25"
+
+linters:
+  disable-all: true
+  enable:
+    # Default recommended set
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - typecheck
+
+linters-settings:
+  errcheck:
+    # Check for unchecked errors in type assertions
+    check-type-assertions: true
+    # Check for unchecked errors in blank assignments
+    check-blank: false
+
+issues:
+  # Don't exclude issues by default rules
+  exclude-use-default: false
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+  # Maximum count of issues with the same text
+  max-same-issues: 3
