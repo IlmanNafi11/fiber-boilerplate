@@ -11,10 +11,8 @@ linters:
     - govet
     - errcheck
     - staticcheck
-    - gosimple
     - ineffassign
     - unused
-    - typecheck
 
 linters-settings:
   errcheck:
