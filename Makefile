@@ -39,8 +39,9 @@ test-integration: ## Run integration tests (Phase 10)
 lint: ## Run golangci-lint
 	golangci-lint run ./...
 
-fmt: ## Auto-format code with gofmt
+fmt: ## Auto-format code with gofmt and Swagger annotations
 	gofmt -w .
+	swag fmt -g cmd/server/main.go
 
 fmt-check: ## Check formatting without modifying files (CI)
 	test -z "$$(gofmt -l .)"
@@ -81,5 +82,5 @@ docker-dev: ## Start development containers with Air hot reload
 
 # ── Documentation ──────────────────────────────────────────
 
-swagger: ## Generate Swagger docs (Phase 9)
-	@echo "Not yet implemented — coming in Phase 9"
+swagger: ## Generate Swagger docs
+	swag init -g cmd/server/main.go -o ./docs --parseDependencyLevel 1 --parseInternal --outputTypes go,json,yaml
