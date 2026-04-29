@@ -12,11 +12,11 @@ import (
 
 func testAuthConfig() config.AuthConfig {
 	return config.AuthConfig{
-		JWTSecret:          "test-secret-key-that-is-long-enough",
-		JWTSecretPrevious:  "",
-		JWTAccessTTL:       15 * time.Minute,
-		JWTRefreshTTL:      168 * time.Hour,
-		RefreshGracePeriod: 30 * time.Second,
+		JWTSecret:           "test-secret-key-that-is-long-enough",
+		JWTSecretPrevious:   "",
+		JWTAccessTTL:        15 * time.Minute,
+		JWTRefreshTTL:       168 * time.Hour,
+		RefreshGracePeriod:  30 * time.Second,
 		RegistrationEnabled: true,
 	}
 }

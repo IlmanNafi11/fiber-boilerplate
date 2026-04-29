@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	authdomain "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
+	authdomain "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
 	"github.com/stretchr/testify/assert"

@@ -6,17 +6,17 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
-	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	"github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	usermodel "github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // RefreshTokenRepo defines the interface for refresh token persistence.
@@ -168,9 +168,9 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		}
 	} else {
 		if err := s.userRepo.UpdateEmailVerifiedAt(ctx, u.ID); err == nil {
-		now := time.Now()
-		u.EmailVerifiedAt = &now
-	}
+			now := time.Now()
+			u.EmailVerifiedAt = &now
+		}
 	}
 
 	u.PasswordHash = ""

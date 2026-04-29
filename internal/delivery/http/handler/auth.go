@@ -1,8 +1,8 @@
 package handler
 
 import (
-	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/middleware"
+	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
 
@@ -85,7 +85,6 @@ func (h *AuthHandler) Me(c fiber.Ctx) error {
 
 	return response.OK(c, "user profile retrieved", userResp)
 }
-
 
 func (h *AuthHandler) VerifyEmail(c fiber.Ctx) error {
 	req := new(authdto.VerifyEmailRequest)

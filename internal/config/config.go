@@ -51,14 +51,13 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret          string        `validate:"required"`
-	JWTSecretPrevious  string
-	JWTAccessTTL       time.Duration
-	JWTRefreshTTL      time.Duration
-	RefreshGracePeriod time.Duration
+	JWTSecret           string `validate:"required"`
+	JWTSecretPrevious   string
+	JWTAccessTTL        time.Duration
+	JWTRefreshTTL       time.Duration
+	RefreshGracePeriod  time.Duration
 	RegistrationEnabled bool
 }
-
 
 type EmailConfig struct {
 	VerificationEnabled   bool
@@ -104,11 +103,11 @@ func Load() (*Config, error) {
 			MaxConnLifetime: getEnvWithDefault("DB_MAX_CONN_LIFETIME", "2h"),
 		},
 		Auth: AuthConfig{
-			JWTSecret:          os.Getenv("JWT_SECRET"),
-			JWTSecretPrevious:  os.Getenv("JWT_SECRET_PREVIOUS"),
-			JWTAccessTTL:       getEnvDurationWithDefault("JWT_ACCESS_TTL", 15*time.Minute),
-			JWTRefreshTTL:      getEnvDurationWithDefault("JWT_REFRESH_TTL", 168*time.Hour),
-			RefreshGracePeriod: getEnvDurationWithDefault("JWT_REFRESH_GRACE_PERIOD", 30*time.Second),
+			JWTSecret:           os.Getenv("JWT_SECRET"),
+			JWTSecretPrevious:   os.Getenv("JWT_SECRET_PREVIOUS"),
+			JWTAccessTTL:        getEnvDurationWithDefault("JWT_ACCESS_TTL", 15*time.Minute),
+			JWTRefreshTTL:       getEnvDurationWithDefault("JWT_REFRESH_TTL", 168*time.Hour),
+			RefreshGracePeriod:  getEnvDurationWithDefault("JWT_REFRESH_GRACE_PERIOD", 30*time.Second),
 			RegistrationEnabled: getEnvBoolWithDefault("REGISTRATION_ENABLED", true),
 		},
 		RateLimit: RateLimitConfig{

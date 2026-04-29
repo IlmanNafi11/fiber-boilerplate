@@ -24,7 +24,7 @@ func NewGlobalLimiter(cfg config.RateLimitConfig) fiber.Handler {
 		KeyGenerator: func(c fiber.Ctx) string {
 			return c.IP()
 		},
-		LimitReached:  makeLimitReachedHandler(cfg.GlobalWindow),
+		LimitReached:   makeLimitReachedHandler(cfg.GlobalWindow),
 		DisableHeaders: true,
 	})
 }
@@ -50,12 +50,10 @@ func NewLoginLimiter(cfg config.RateLimitConfig) fiber.Handler {
 			}
 			return c.IP()
 		},
-		LimitReached:  makeLimitReachedHandler(cfg.LoginWindow),
+		LimitReached:   makeLimitReachedHandler(cfg.LoginWindow),
 		DisableHeaders: true,
 	})
 }
-
-
 
 // NewForgotPasswordLimiter creates a rate limiter for the forgot-password endpoint.
 // Uses IP+email key with IP-only fallback on parse failure (D-04, SEC-02).
@@ -78,7 +76,7 @@ func NewForgotPasswordLimiter(cfg config.RateLimitConfig) fiber.Handler {
 			}
 			return c.IP()
 		},
-		LimitReached:  makeLimitReachedHandler(cfg.ForgotPasswordWindow),
+		LimitReached:   makeLimitReachedHandler(cfg.ForgotPasswordWindow),
 		DisableHeaders: true,
 	})
 }

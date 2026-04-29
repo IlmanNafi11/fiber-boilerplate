@@ -198,7 +198,6 @@ func TestLimitReachedHandler_Returns429AppError(t *testing.T) {
 	assert.Equal(t, "TOO_MANY_REQUESTS", result["code"])
 }
 
-
 // --- Forgot-password rate limiter tests ---
 
 func TestNewForgotPasswordLimiter_DisabledWhenMaxZero(t *testing.T) {

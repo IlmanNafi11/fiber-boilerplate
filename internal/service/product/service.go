@@ -6,7 +6,6 @@ import (
 
 	productdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/product"
 	"github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
-	productrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/product"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 )
 
@@ -21,10 +20,10 @@ type ProductRepo interface {
 }
 
 type ProductService struct {
-	repo *productrepo.ProductRepository
+	repo ProductRepo
 }
 
-func NewProductService(repo *productrepo.ProductRepository) *ProductService {
+func NewProductService(repo ProductRepo) *ProductService {
 	return &ProductService{repo: repo}
 }
 

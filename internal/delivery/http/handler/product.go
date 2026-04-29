@@ -1,19 +1,29 @@
 package handler
 
 import (
-	productdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/product"
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/middleware"
-	productservice "github.com/ilmannafi/fiber-boilerplate/internal/service/product"
+	productdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/product"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
+
+	"context"
 
 	"github.com/gofiber/fiber/v3"
 )
 
-type ProductHandler struct {
-	productSvc *productservice.ProductService
+// ProductServiceProvider defines the service interface the handler depends on.
+type ProductServiceProvider interface {
+	Create(ctx context.Context, userID string, req *productdto.CreateProductRequest) (*productdto.ProductResponse, error)
+	GetByID(ctx context.Context, id string) (*productdto.ProductResponse, error)
+	List(ctx context.Context, page, limit int) ([]*productdto.ProductResponse, int, error)
+	Update(ctx context.Context, productID, userID, role string, req *productdto.UpdateProductRequest) (*productdto.ProductResponse, error)
+	Delete(ctx context.Context, productID, userID, role string) (*productdto.ProductResponse, error)
 }
 
-func NewProductHandler(productSvc *productservice.ProductService) *ProductHandler {
+type ProductHandler struct {
+	productSvc ProductServiceProvider
+}
+
+func NewProductHandler(productSvc ProductServiceProvider) *ProductHandler {
 	return &ProductHandler{productSvc: productSvc}
 }
 

@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
+	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )

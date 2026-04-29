@@ -24,9 +24,9 @@ func TestAppError_WithDetail(t *testing.T) {
 
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
-		name  string
-		err   error
-		msg   string
+		name string
+		err  error
+		msg  string
 	}{
 		{"ErrNotFound", ErrNotFound, "resource not found"},
 		{"ErrDuplicate", ErrDuplicate, "duplicate resource"},
@@ -44,11 +44,11 @@ func TestSentinelErrors(t *testing.T) {
 
 func TestConstructors(t *testing.T) {
 	tests := []struct {
-		name       string
-		fn         func() *AppError
-		code       string
-		status     int
-		msg        string
+		name   string
+		fn     func() *AppError
+		code   string
+		status int
+		msg    string
 	}{
 		{
 			"NotFound", func() *AppError { return NotFound("not here") },
