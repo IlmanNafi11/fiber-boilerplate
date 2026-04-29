@@ -18,6 +18,7 @@ type Config struct {
 	RateLimit RateLimitConfig
 	Email     EmailConfig
 	SMTP      SMTPConfig
+	Seeder    SeederConfig
 }
 
 type RateLimitConfig struct {
@@ -73,6 +74,13 @@ type SMTPConfig struct {
 	From     string
 }
 
+type SeederConfig struct {
+	AdminEmail    string
+	AdminPassword string
+	DemoEmail     string
+	DemoPassword  string
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -122,6 +130,12 @@ func Load() (*Config, error) {
 			User:     os.Getenv("SMTP_USER"),
 			Password: os.Getenv("SMTP_PASSWORD"),
 			From:     getEnvWithDefault("SMTP_FROM", "noreply@example.com"),
+		},
+		Seeder: SeederConfig{
+			AdminEmail:    os.Getenv("ADMIN_EMAIL"),
+			AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+			DemoEmail:     os.Getenv("DEMO_EMAIL"),
+			DemoPassword:  os.Getenv("DEMO_PASSWORD"),
 		},
 	}
 
