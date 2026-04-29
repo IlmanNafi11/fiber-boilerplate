@@ -83,4 +83,4 @@ docker-dev: ## Start development containers with Air hot reload
 # ── Documentation ──────────────────────────────────────────
 
 swagger: ## Generate Swagger docs
-	swag init -g cmd/server/main.go -o ./docs --parseDependencyLevel 1 --parseInternal --outputTypes go,json,yaml
+	swag init -g cmd/server/main.go -o ./docs --parseInternal --outputTypes go,json,yaml
