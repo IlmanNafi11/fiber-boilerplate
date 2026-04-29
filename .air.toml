@@ -17,9 +17,9 @@ tmp_dir = "tmp"
   # Specific files to watch
   include_file = ["go.mod", "go.sum", ".env"]
   # Kill delay (how long to wait after SIGTERM before SIGKILL)
-  kill_delay = "0s"
+  kill_delay = "2s"
   # Send interrupt signal (SIGINT) before killing
-  send_interrupt = false
+  send_interrupt = true
 
 [log]
   # Show timestamps in Air log output
