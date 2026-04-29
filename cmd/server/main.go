@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	_ "github.com/ilmannafi/fiber-boilerplate/docs"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	http "github.com/ilmannafi/fiber-boilerplate/internal/delivery/http"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/database"
@@ -13,6 +14,24 @@ import (
 	"go.uber.org/zap"
 )
 
+// @title Fiber Boilerplate API
+// @version 1.0
+// @description A production-ready Go Fiber backend boilerplate with JWT authentication, rotating refresh tokens, email verification, and password reset.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url https://github.com/ilmannafi/fiber-boilerplate
+// @contact.email support@example.com
+
+// @license.name MIT
+// @license.url https://opensource.org/licenses/MIT
+
+// @host localhost:3000
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 func main() {
 	// 1. Load and validate config
 	cfg, err := config.Load()

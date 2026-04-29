@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	zapmiddleware "github.com/gofiber/contrib/v3/zap"
+	"github.com/gofiber/contrib/v3/swaggo"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -102,6 +103,11 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 	// Health check — not rate-limited, no auth required (D-18, TOOL-04)
 	healthHandler := handler.NewHealthHandler(pool)
 	app.Get("/health", healthHandler.Check)
+
+	// Swagger UI — conditionally registered based on SWAGGER_ENABLED / APP_ENV (DOC-02)
+	if cfg.Server.SwaggerEnabled() {
+		app.Get("/swagger/*", swaggo.HandlerDefault)
+	}
 
 	// 6. API v1 group — global rate limiter (SEC-03, D-12)
 	apiV1 := app.Group("/api/v1")

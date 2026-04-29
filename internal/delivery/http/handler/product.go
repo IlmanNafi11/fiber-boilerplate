@@ -27,7 +27,19 @@ func NewProductHandler(productSvc ProductServiceProvider) *ProductHandler {
 	return &ProductHandler{productSvc: productSvc}
 }
 
-// Create handles POST /api/v1/products (PROD-01)
+// Create godoc
+// @Summary Create a new product
+// @Description Create a product with validated fields. Requires authentication.
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body product.CreateProductRequest true "Product data"
+// @Success 201 {object} response.Response{data=product.ProductResponse} "Product created successfully"
+// @Failure 400 {object} response.Response "Validation error"
+// @Failure 401 {object} response.Response "Missing or invalid token"
+// @Failure 500 {object} response.Response "Internal server error"
+// @Router /api/v1/products [post]
 func (h *ProductHandler) Create(c fiber.Ctx) error {
 	req := new(productdto.CreateProductRequest)
 	if err := c.Bind().JSON(req); err != nil {
@@ -43,7 +55,20 @@ func (h *ProductHandler) Create(c fiber.Ctx) error {
 	return response.Created(c, "product created successfully", product)
 }
 
-// GetByID handles GET /api/v1/products/:id (PROD-03)
+// GetByID godoc
+// @Summary Get product by ID
+// @Description Retrieve a single product by its UUID
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Product ID"
+// @Success 200 {object} response.Response{data=product.ProductResponse} "Product retrieved successfully"
+// @Failure 400 {object} response.Response "Invalid product ID"
+// @Failure 401 {object} response.Response "Missing or invalid token"
+// @Failure 404 {object} response.Response "Product not found"
+// @Failure 500 {object} response.Response "Internal server error"
+// @Router /api/v1/products/{id} [get]
 func (h *ProductHandler) GetByID(c fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -55,7 +80,19 @@ func (h *ProductHandler) GetByID(c fiber.Ctx) error {
 	return response.OK(c, "product retrieved successfully", product)
 }
 
-// List handles GET /api/v1/products with pagination (PROD-02)
+// List godoc
+// @Summary List products
+// @Description Retrieve a paginated list of products
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param page query int false "Page number" example(1)
+// @Param limit query int false "Items per page" example(10)
+// @Success 200 {object} response.Response{data=[]product.ProductResponse} "Products retrieved successfully"
+// @Failure 401 {object} response.Response "Missing or invalid token"
+// @Failure 500 {object} response.Response "Internal server error"
+// @Router /api/v1/products [get]
 func (h *ProductHandler) List(c fiber.Ctx) error {
 	query := new(productdto.PaginationQuery)
 	if err := c.Bind().Query(query); err != nil {
@@ -78,7 +115,22 @@ func (h *ProductHandler) List(c fiber.Ctx) error {
 	return response.Paginated(c, "products retrieved successfully", products, query.Page, query.Limit, total)
 }
 
-// Update handles PATCH /api/v1/products/:id (PROD-04)
+// Update godoc
+// @Summary Update a product
+// @Description Update product fields. Only the owner or admin can update. Uses partial update (sent fields only).
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Product ID"
+// @Param request body product.UpdateProductRequest true "Fields to update"
+// @Success 200 {object} response.Response{data=product.ProductResponse} "Product updated successfully"
+// @Failure 400 {object} response.Response "Validation error"
+// @Failure 401 {object} response.Response "Missing or invalid token"
+// @Failure 403 {object} response.Response "Not authorized to update this product"
+// @Failure 404 {object} response.Response "Product not found"
+// @Failure 500 {object} response.Response "Internal server error"
+// @Router /api/v1/products/{id} [patch]
 func (h *ProductHandler) Update(c fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -96,7 +148,21 @@ func (h *ProductHandler) Update(c fiber.Ctx) error {
 	return response.OK(c, "product updated successfully", product)
 }
 
-// Delete handles DELETE /api/v1/products/:id (PROD-05)
+// Delete godoc
+// @Summary Delete a product
+// @Description Soft-delete a product. Only the owner or admin can delete.
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Product ID"
+// @Success 200 {object} response.Response{data=product.ProductResponse} "Product deleted successfully"
+// @Failure 400 {object} response.Response "Invalid product ID"
+// @Failure 401 {object} response.Response "Missing or invalid token"
+// @Failure 403 {object} response.Response "Not authorized to delete this product"
+// @Failure 404 {object} response.Response "Product not found"
+// @Failure 500 {object} response.Response "Internal server error"
+// @Router /api/v1/products/{id} [delete]
 func (h *ProductHandler) Delete(c fiber.Ctx) error {
 	id := c.Params("id")
 
