@@ -26,13 +26,16 @@ func main() {
 	command := args[0]
 
 	// Validate arguments that don't need DB access before loading config.
+	var forceVersion int
 	switch command {
 	case "force":
 		if len(args) < 2 {
 			log.Fatal("force requires a version argument (e.g., migrate force 1)")
 		}
-		if _, err := strconv.Atoi(args[1]); err != nil {
+		if v, err := strconv.Atoi(args[1]); err != nil {
 			log.Fatalf("force: invalid version %q: must be a number", args[1])
+		} else {
+			forceVersion = v
 		}
 	}
 
@@ -98,7 +101,6 @@ func main() {
 		fmt.Printf("current version: %d (%s)\n", version, dirtyStatus)
 
 	case "force":
-		forceVersion, _ := strconv.Atoi(args[1])
 		if err := m.Force(forceVersion); err != nil {
 			log.Fatalf("force version failed: %v", err)
 		}
