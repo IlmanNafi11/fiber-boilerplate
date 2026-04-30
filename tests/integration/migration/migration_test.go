@@ -18,6 +18,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcwait "github.com/testcontainers/testcontainers-go/wait"
+	"github.com/ilmannafi/fiber-boilerplate/testhelpers"
 )
 
 type MigrationSuite struct {
@@ -70,8 +71,17 @@ func (s *MigrationSuite) TearDownSuite() {
 	}
 }
 
+// SetupTest resets the database to a clean state before each test.
+// Each test expects to start with no migrations applied.
+func (s *MigrationSuite) SetupTest() {
+	m, err := migrate.New(testhelpers.MigrationsURL(), s.migrateDSN())
+	require.NoError(s.T(), err)
+	_ = m.Drop()
+	m.Close()
+}
+
 func (s *MigrationSuite) newMigrator() *migrate.Migrate {
-	m, err := migrate.New("file://db/migrations", s.migrateDSN())
+	m, err := migrate.New(testhelpers.MigrationsURL(), s.migrateDSN())
 	require.NoError(s.T(), err)
 	return m
 }

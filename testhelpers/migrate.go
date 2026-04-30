@@ -1,6 +1,7 @@
 package testhelpers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -9,11 +10,18 @@ import (
 )
 
 // RunMigrations applies all pending migrations from db/migrations against
-// the given DSN. The DSN should be in pgx5:// format.
+// the given DSN. The DSN can be in either postgres:// or pgx5:// format.
 func RunMigrations(t testing.TB, dsn string) {
 	t.Helper()
 
-	m, err := migrate.New("file://db/migrations", "pgx5://"+dsn)
+	// Normalize DSN to pgx5:// format for golang-migrate
+	if strings.HasPrefix(dsn, "postgres://") {
+		dsn = "pgx5://" + strings.TrimPrefix(dsn, "postgres://")
+	} else if !strings.HasPrefix(dsn, "pgx5://") {
+		dsn = "pgx5://" + dsn
+	}
+
+	m, err := migrate.New(MigrationsURL(), dsn)
 	if err != nil {
 		t.Fatalf("failed to create migrator: %v", err)
 	}
