@@ -105,8 +105,10 @@ func seedAdmin(ctx context.Context, tx pgx.Tx, cfg config.SeederConfig, logger *
 	if err != nil {
 		// pgx returns pgx.ErrNoRows when ON CONFLICT DO NOTHING and no row returned
 		logger.Info("Skipped admin user (already exists)", zap.String("email", cfg.AdminEmail))
-		err := tx.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, cfg.AdminEmail).Scan(&id)
-		return id, false, err
+		if scanErr := tx.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, cfg.AdminEmail).Scan(&id); scanErr != nil {
+			return "", false, scanErr
+		}
+		return id, false, nil
 	}
 
 	logger.Info("Created admin user", zap.String("email", cfg.AdminEmail))
