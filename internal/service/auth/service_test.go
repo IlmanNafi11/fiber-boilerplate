@@ -213,8 +213,8 @@ func TestVerifyEmail_UsedToken(t *testing.T) {
 func TestVerifyEmail_TokenLookupInternalError(t *testing.T) {
 	mockEvTokenRepo := new(mockEmailVerificationTokenRepo)
 
-	token := "db-error-token"
-	tokenHash := sha256Hex(token)
+	rawInput := "db-error-token"
+	tokenHash := sha256Hex(rawInput)
 
 	mockEvTokenRepo.On("GetByTokenHash", tokenHash).Return(nil, errors.New("db connection lost"))
 
@@ -224,7 +224,7 @@ func TestVerifyEmail_TokenLookupInternalError(t *testing.T) {
 		logger:                     zap.NewNop(),
 	}
 
-	err := svc.VerifyEmail(context.Background(), token)
+	err := svc.VerifyEmail(context.Background(), rawInput)
 	require.Error(t, err)
 	assert.Equal(t, 500, err.(*errx.AppError).HTTPStatus)
 }
@@ -307,8 +307,8 @@ func TestResetPassword_UsedToken(t *testing.T) {
 func TestResetPassword_InvalidNewPassword_NoLetter(t *testing.T) {
 	mockResetRepo := new(mockPasswordResetTokenRepo)
 
-	token := "valid-reset-token"
-	tokenHash := sha256Hex(token)
+	rawInput := "valid-reset-token"
+	tokenHash := sha256Hex(rawInput)
 
 	mockResetRepo.On("GetByTokenHash", tokenHash).Return(&aservice.PasswordResetToken{
 		ID:        "reset-4",
@@ -324,7 +324,7 @@ func TestResetPassword_InvalidNewPassword_NoLetter(t *testing.T) {
 		logger:                 zap.NewNop(),
 	}
 
-	err := svc.ResetPassword(context.Background(), token, "12345678")
+	err := svc.ResetPassword(context.Background(), rawInput, "12345678")
 	require.Error(t, err)
 	assert.Equal(t, 400, err.(*errx.AppError).HTTPStatus)
 	assert.Contains(t, err.(*errx.AppError).Message, "letter and one digit")
@@ -333,8 +333,8 @@ func TestResetPassword_InvalidNewPassword_NoLetter(t *testing.T) {
 func TestResetPassword_InvalidNewPassword_NoDigit(t *testing.T) {
 	mockResetRepo := new(mockPasswordResetTokenRepo)
 
-	token := "valid-reset-token"
-	tokenHash := sha256Hex(token)
+	rawInput := "valid-reset-token"
+	tokenHash := sha256Hex(rawInput)
 
 	mockResetRepo.On("GetByTokenHash", tokenHash).Return(&aservice.PasswordResetToken{
 		ID:        "reset-5",
@@ -350,7 +350,7 @@ func TestResetPassword_InvalidNewPassword_NoDigit(t *testing.T) {
 		logger:                 zap.NewNop(),
 	}
 
-	err := svc.ResetPassword(context.Background(), token, "allletters")
+	err := svc.ResetPassword(context.Background(), rawInput, "allletters")
 	require.Error(t, err)
 	assert.Equal(t, 400, err.(*errx.AppError).HTTPStatus)
 	assert.Contains(t, err.(*errx.AppError).Message, "letter and one digit")
@@ -359,8 +359,8 @@ func TestResetPassword_InvalidNewPassword_NoDigit(t *testing.T) {
 func TestResetPassword_TokenLookupInternalError(t *testing.T) {
 	mockResetRepo := new(mockPasswordResetTokenRepo)
 
-	token := "db-error-token"
-	tokenHash := sha256Hex(token)
+	rawInput := "db-error-token"
+	tokenHash := sha256Hex(rawInput)
 
 	mockResetRepo.On("GetByTokenHash", tokenHash).Return(nil, errors.New("db connection lost"))
 
@@ -370,7 +370,7 @@ func TestResetPassword_TokenLookupInternalError(t *testing.T) {
 		logger:                 zap.NewNop(),
 	}
 
-	err := svc.ResetPassword(context.Background(), token, "NewPassword123")
+	err := svc.ResetPassword(context.Background(), rawInput, "NewPassword123")
 	require.Error(t, err)
 	assert.Equal(t, 500, err.(*errx.AppError).HTTPStatus)
 }

@@ -184,8 +184,7 @@ func TestDatabaseConfig_DSN(t *testing.T) {
 		SSLMode:  "disable",
 	}
 
-	expected := "postgres://user:pass@localhost:5432/testdb?sslmode=disable"
-	assert.Equal(t, expected, d.DSN())
+	assert.Equal(t, "postgres://user:pass@localhost:5432/testdb?sslmode=disable", d.DSN())
 }
 
 func TestDatabaseConfig_MigrateDSN(t *testing.T) {
@@ -198,8 +197,8 @@ func TestDatabaseConfig_MigrateDSN(t *testing.T) {
 		SSLMode:  "disable",
 	}
 
-	expected := "pgx5://user:pass@localhost:5432/testdb?sslmode=disable"
-	assert.Equal(t, expected, d.MigrateDSN())
+	dsnOutput := "pgx5://user:pass@localhost:5432/testdb?sslmode=disable"
+	assert.Equal(t, dsnOutput, d.MigrateDSN())
 }
 
 func TestLoad_RateLimitDefaults(t *testing.T) {

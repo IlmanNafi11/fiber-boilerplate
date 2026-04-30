@@ -155,7 +155,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 				s.logger.Error("failed to store verification token", zap.Error(err))
 			} else {
 				go func() {
-					if err := s.emailSender.SendVerificationEmail(context.Background(), u.Email, plainToken); err != nil {
+					if err := s.emailSender.SendVerificationEmail(ctx, u.Email, plainToken); err != nil {
 						s.logger.Error("failed to send verification email",
 							zap.String("user_id", u.ID),
 							zap.Error(err),
@@ -310,7 +310,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 	}
 	defer func() {
 		if err := tx.Rollback(ctx); err != nil {
-			// Expected after successful commit
+			s.logger.Debug("deferred rollback after commit", zap.Error(err))
 		}
 	}()
 
@@ -440,7 +440,7 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 	}
 
 	go func() {
-		if err := s.emailSender.SendVerificationEmail(context.Background(), u.Email, plainToken); err != nil {
+		if err := s.emailSender.SendVerificationEmail(ctx, u.Email, plainToken); err != nil {
 			s.logger.Error("failed to send verification email",
 				zap.String("user_id", u.ID),
 				zap.Error(err),
@@ -474,7 +474,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	go func() {
-		if err := s.emailSender.SendPasswordResetEmail(context.Background(), u.Email, plainToken); err != nil {
+		if err := s.emailSender.SendPasswordResetEmail(ctx, u.Email, plainToken); err != nil {
 			s.logger.Error("failed to send password reset email",
 				zap.String("user_id", u.ID),
 				zap.Error(err),
@@ -529,7 +529,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 	}
 	defer func() {
 		if err := tx.Rollback(ctx); err != nil {
-			// Expected after successful commit
+			s.logger.Debug("deferred rollback after commit", zap.Error(err))
 		}
 	}()
 
@@ -556,7 +556,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 	u, err := s.userRepo.GetByID(ctx, resetToken.UserID)
 	if err == nil {
 		go func() {
-			if err := s.emailSender.SendPasswordChangedNotification(context.Background(), u.Email); err != nil {
+			if err := s.emailSender.SendPasswordChangedNotification(ctx, u.Email); err != nil {
 				s.logger.Error("failed to send password change notification",
 					zap.String("user_id", u.ID),
 					zap.Error(err),

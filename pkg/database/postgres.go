@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
@@ -16,6 +17,12 @@ func NewPool(ctx context.Context, cfg config.DatabaseConfig, logger *zap.Logger)
 		return nil, fmt.Errorf("failed to parse database config: %w", err)
 	}
 
+	if cfg.MaxConns < 0 || cfg.MaxConns > math.MaxInt32 {
+		return nil, fmt.Errorf("DB_MAX_CONNS value %d out of valid range (0-%d)", cfg.MaxConns, math.MaxInt32)
+	}
+	if cfg.MinConns < 0 || cfg.MinConns > math.MaxInt32 {
+		return nil, fmt.Errorf("DB_MIN_CONNS value %d out of valid range (0-%d)", cfg.MinConns, math.MaxInt32)
+	}
 	poolCfg.MaxConns = int32(cfg.MaxConns)
 	poolCfg.MinConns = int32(cfg.MinConns)
 

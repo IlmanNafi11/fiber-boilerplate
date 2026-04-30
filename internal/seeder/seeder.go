@@ -3,6 +3,7 @@ package seeder
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"unicode"
 
@@ -33,7 +34,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg config.SeederConfig, env s
 	}
 	defer func() {
 		if err := tx.Rollback(ctx); err != nil {
-			// Expected "already committed" after successful commit
+			slog.DebugContext(ctx, "deferred rollback result", "error", err)
 		}
 	}()
 

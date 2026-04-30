@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -11,6 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+// safeInt32 converts int to int32 after range validation in tests.
+// Caller must ensure n is within [0, math.MaxInt32].
+func safeInt32(n int) int32 {
+	if n < 0 || n > math.MaxInt32 {
+		return 0 // fallback for invalid values; tests should catch this via require.True
+	}
+	return int32(n)
+}
 
 func TestNewPool_UnreachableHost(t *testing.T) {
 	cfg := config.DatabaseConfig{
@@ -74,8 +84,10 @@ func TestNewPool_DerivesPoolConfigFromDatabaseConfig(t *testing.T) {
 	require.NoError(t, err, "DatabaseConfig.DSN() should produce a valid pgxpool config")
 
 	// Apply config values the same way NewPool does
-	poolCfg.MaxConns = int32(cfg.MaxConns)
-	poolCfg.MinConns = int32(cfg.MinConns)
+	require.True(t, cfg.MaxConns >= 0 && cfg.MaxConns <= math.MaxInt32, "MaxConns should be in int32 range")
+	require.True(t, cfg.MinConns >= 0 && cfg.MinConns <= math.MaxInt32, "MinConns should be in int32 range")
+	// Convert via explicit range check -- values validated above to fit int32
+	poolCfg.MaxConns, poolCfg.MinConns = safeInt32(cfg.MaxConns), safeInt32(cfg.MinConns)
 	idle, err := time.ParseDuration(cfg.MaxConnIdleTime)
 	require.NoError(t, err)
 	poolCfg.MaxConnIdleTime = idle
