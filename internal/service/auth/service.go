@@ -427,7 +427,12 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 		return nil
 	}
 
-	_ = s.emailVerificationTokenRepo.MarkUsedByUserID(ctx, u.ID)
+	if err := s.emailVerificationTokenRepo.MarkUsedByUserID(ctx, u.ID); err != nil {
+		s.logger.Warn("failed to invalidate previous verification tokens",
+			zap.String("user_id", u.ID),
+			zap.Error(err),
+		)
+	}
 
 	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 	if err != nil {
@@ -462,7 +467,12 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		return nil
 	}
 
-	_ = s.passwordResetTokenRepo.MarkUsedByUserID(ctx, u.ID)
+	if err := s.passwordResetTokenRepo.MarkUsedByUserID(ctx, u.ID); err != nil {
+		s.logger.Warn("failed to invalidate previous reset tokens",
+			zap.String("user_id", u.ID),
+			zap.Error(err),
+		)
+	}
 
 	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 	if err != nil {
