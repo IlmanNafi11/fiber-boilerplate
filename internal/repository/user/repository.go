@@ -107,3 +107,17 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, userID string, pass
 	}
 	return nil
 }
+
+func (r *UserRepository) UpdatePasswordWithTx(ctx context.Context, tx pgx.Tx, userID string, passwordHash string) error {
+	tag, err := tx.Exec(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+		passwordHash, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return user.ErrUserNotFound
+	}
+	return nil
+}

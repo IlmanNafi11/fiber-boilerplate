@@ -73,6 +73,14 @@ func (r *SessionRepository) RevokeByUserID(ctx context.Context, userID string) e
 	return err
 }
 
+func (r *SessionRepository) RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
+		userID,
+	)
+	return err
+}
+
 // --- RefreshTokenRepository ---
 
 type RefreshTokenRepository struct {
@@ -169,6 +177,16 @@ func (r *RefreshTokenRepository) GetBySessionIDNewest(ctx context.Context, sessi
 
 func (r *RefreshTokenRepository) RevokeByUserID(ctx context.Context, userID string) error {
 	_, err := r.pool.Exec(ctx,
+		`UPDATE refresh_tokens SET revoked_at = NOW()
+		 WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)
+		 AND revoked_at IS NULL`,
+		userID,
+	)
+	return err
+}
+
+func (r *RefreshTokenRepository) RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	_, err := tx.Exec(ctx,
 		`UPDATE refresh_tokens SET revoked_at = NOW()
 		 WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)
 		 AND revoked_at IS NULL`,

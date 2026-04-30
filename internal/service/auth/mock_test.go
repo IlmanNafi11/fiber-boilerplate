@@ -48,6 +48,10 @@ func (m *mockRefreshTokenRepo) CreateWithTx(_ context.Context, _ pgx.Tx, _ *aser
 	return nil
 }
 
+func (m *mockRefreshTokenRepo) RevokeByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
+	return nil
+}
+
 type mockSessionRepo struct {
 	mock.Mock
 }
@@ -69,6 +73,10 @@ func (m *mockSessionRepo) RevokeByID(ctx context.Context, id string) error {
 }
 
 func (m *mockSessionRepo) RevokeByUserID(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockSessionRepo) RevokeByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
 	return nil
 }
 
@@ -123,6 +131,10 @@ func (m *mockPasswordResetTokenRepo) GetByTokenHash(_ context.Context, tokenHash
 }
 
 func (m *mockPasswordResetTokenRepo) MarkUsed(_ context.Context, id string) error {
+	return m.Called(id).Error(0)
+}
+
+func (m *mockPasswordResetTokenRepo) MarkUsedWithTx(_ context.Context, _ pgx.Tx, id string) error {
 	return m.Called(id).Error(0)
 }
 

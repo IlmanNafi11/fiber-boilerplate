@@ -25,6 +25,7 @@ type RefreshTokenRepo interface {
 	RevokeByUserID(ctx context.Context, userID string) error
 	RevokeWithTx(ctx context.Context, tx pgx.Tx, id string, graceUntil *time.Time) error
 	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.RefreshToken) error
+	RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 }
 
 // SessionRepo defines the interface for session persistence.
@@ -33,6 +34,7 @@ type SessionRepo interface {
 	GetByID(ctx context.Context, id string) (*authdto.Session, error)
 	RevokeByID(ctx context.Context, id string) error
 	RevokeByUserID(ctx context.Context, userID string) error
+	RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 }
 
 // EmailVerificationTokenRepo defines the interface for email verification token persistence.
@@ -50,6 +52,7 @@ type PasswordResetTokenRepo interface {
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.PasswordResetToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
+	MarkUsedWithTx(ctx context.Context, tx pgx.Tx, id string) error
 }
 
 // EmailSender defines the interface for sending transactional emails.
@@ -533,19 +536,19 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		}
 	}()
 
-	if err := s.passwordResetTokenRepo.MarkUsed(ctx, resetToken.ID); err != nil {
+	if err := s.passwordResetTokenRepo.MarkUsedWithTx(ctx, tx, resetToken.ID); err != nil {
 		return errx.Internal("token invalidation failed", err.Error())
 	}
 
-	if err := s.userRepo.UpdatePassword(ctx, resetToken.UserID, string(hash)); err != nil {
+	if err := s.userRepo.UpdatePasswordWithTx(ctx, tx, resetToken.UserID, string(hash)); err != nil {
 		return errx.Internal("password update failed", err.Error())
 	}
 
-	if err := s.sessionRepo.RevokeByUserID(ctx, resetToken.UserID); err != nil {
+	if err := s.sessionRepo.RevokeByUserIDWithTx(ctx, tx, resetToken.UserID); err != nil {
 		return errx.Internal("session revocation failed", err.Error())
 	}
 
-	if err := s.refreshTokenRepo.RevokeByUserID(ctx, resetToken.UserID); err != nil {
+	if err := s.refreshTokenRepo.RevokeByUserIDWithTx(ctx, tx, resetToken.UserID); err != nil {
 		return errx.Internal("refresh token revocation failed", err.Error())
 	}
 
