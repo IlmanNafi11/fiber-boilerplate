@@ -1,7 +1,7 @@
 # Fiber Boilerplate — Developer Commands
 # Run `make help` to see all available targets.
 
-.PHONY: help run dev build test test-unit test-integration \
+.PHONY: help run dev build test test-unit test-integration test-coverage \
         lint fmt fmt-check \
         swagger \
         migrate-up migrate-down migrate-down-all migrate-version \
@@ -25,14 +25,20 @@ build: ## Build the server binary
 
 # ── Testing ────────────────────────────────────────────────
 
-test: ## Run all tests
+test-unit: ## Run unit tests only
 	go test ./...
 
-test-unit: ## Run unit tests (Phase 10)
-	@echo "Not yet implemented — coming in Phase 10"
+test-integration: ## Run integration tests (requires Docker)
+	go test -tags=integration ./...
 
-test-integration: ## Run integration tests (Phase 10)
-	@echo "Not yet implemented — coming in Phase 10"
+test: ## Run all tests (unit + integration)
+	go test ./...
+	go test -tags=integration ./...
+
+test-coverage: ## Run unit tests with coverage report
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	@rm -f coverage.out
 
 # ── Code Quality ───────────────────────────────────────────
 
@@ -47,22 +53,16 @@ fmt-check: ## Check formatting without modifying files (CI)
 	test -z "$$(gofmt -l .)"
 
 # ── Database Migrations ────────────────────────────────────
-
 migrate-up: ## Apply all pending migrations
 	go run ./cmd/migrate/main.go up
-
 migrate-down: ## Rollback last migration
 	go run ./cmd/migrate/main.go down
-
 migrate-down-all: ## Rollback all migrations
 	go run ./cmd/migrate/main.go down -all
-
 migrate-version: ## Show current migration version
 	go run ./cmd/migrate/main.go version
-
 migrate-force: ## Force migration version (dirty state recovery)
 	go run ./cmd/migrate/main.go force $(V)
-
 migrate-create: ## Create new migration (usage: make migrate-create name=description)
 	@read -p "Migration name: " name; \
 	migrate create -ext sql -dir db/migrations -seq $$name
