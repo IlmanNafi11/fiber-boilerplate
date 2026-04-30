@@ -158,7 +158,8 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 				s.logger.Error("failed to store verification token", zap.Error(err))
 			} else {
 				go func() {
-					if err := s.emailSender.SendVerificationEmail(ctx, u.Email, plainToken); err != nil {
+					emailCtx := context.WithoutCancel(ctx)
+					if err := s.emailSender.SendVerificationEmail(emailCtx, u.Email, plainToken); err != nil {
 						s.logger.Error("failed to send verification email",
 							zap.String("user_id", u.ID),
 							zap.Error(err),
@@ -443,7 +444,8 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 	}
 
 	go func() {
-		if err := s.emailSender.SendVerificationEmail(ctx, u.Email, plainToken); err != nil {
+		emailCtx := context.WithoutCancel(ctx)
+		if err := s.emailSender.SendVerificationEmail(emailCtx, u.Email, plainToken); err != nil {
 			s.logger.Error("failed to send verification email",
 				zap.String("user_id", u.ID),
 				zap.Error(err),
@@ -477,7 +479,8 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	go func() {
-		if err := s.emailSender.SendPasswordResetEmail(ctx, u.Email, plainToken); err != nil {
+		emailCtx := context.WithoutCancel(ctx)
+		if err := s.emailSender.SendPasswordResetEmail(emailCtx, u.Email, plainToken); err != nil {
 			s.logger.Error("failed to send password reset email",
 				zap.String("user_id", u.ID),
 				zap.Error(err),
@@ -559,7 +562,8 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 	u, err := s.userRepo.GetByID(ctx, resetToken.UserID)
 	if err == nil {
 		go func() {
-			if err := s.emailSender.SendPasswordChangedNotification(ctx, u.Email); err != nil {
+			emailCtx := context.WithoutCancel(ctx)
+			if err := s.emailSender.SendPasswordChangedNotification(emailCtx, u.Email); err != nil {
 				s.logger.Error("failed to send password change notification",
 					zap.String("user_id", u.ID),
 					zap.Error(err),
