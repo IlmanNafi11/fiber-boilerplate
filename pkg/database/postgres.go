@@ -28,16 +28,18 @@ func NewPool(ctx context.Context, cfg config.DatabaseConfig, logger *zap.Logger)
 
 	if cfg.MaxConnIdleTime != "" {
 		d, err := time.ParseDuration(cfg.MaxConnIdleTime)
-		if err == nil {
-			poolCfg.MaxConnIdleTime = d
+		if err != nil {
+			return nil, fmt.Errorf("invalid DB_MAX_CONN_IDLE_TIME %q: %w", cfg.MaxConnIdleTime, err)
 		}
+		poolCfg.MaxConnIdleTime = d
 	}
 
 	if cfg.MaxConnLifetime != "" {
 		d, err := time.ParseDuration(cfg.MaxConnLifetime)
-		if err == nil {
-			poolCfg.MaxConnLifetime = d
+		if err != nil {
+			return nil, fmt.Errorf("invalid DB_MAX_CONN_LIFETIME %q: %w", cfg.MaxConnLifetime, err)
 		}
+		poolCfg.MaxConnLifetime = d
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
