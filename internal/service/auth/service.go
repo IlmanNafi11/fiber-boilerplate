@@ -7,9 +7,7 @@ import (
 	"unicode"
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
-	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
-	"github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	usermodel "github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
@@ -21,35 +19,35 @@ import (
 
 // RefreshTokenRepo defines the interface for refresh token persistence.
 type RefreshTokenRepo interface {
-	GetByTokenHash(ctx context.Context, tokenHash string) (*aservice.RefreshToken, error)
-	Create(ctx context.Context, t *aservice.RefreshToken) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.RefreshToken, error)
+	Create(ctx context.Context, t *authdto.RefreshToken) error
 	RevokeBySessionID(ctx context.Context, sessionID string) error
 	RevokeByUserID(ctx context.Context, userID string) error
 	RevokeWithTx(ctx context.Context, tx pgx.Tx, id string, graceUntil *time.Time) error
-	CreateWithTx(ctx context.Context, tx pgx.Tx, t *aservice.RefreshToken) error
+	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.RefreshToken) error
 }
 
 // SessionRepo defines the interface for session persistence.
 type SessionRepo interface {
-	Create(ctx context.Context, s *aservice.Session) error
-	GetByID(ctx context.Context, id string) (*aservice.Session, error)
+	Create(ctx context.Context, s *authdto.Session) error
+	GetByID(ctx context.Context, id string) (*authdto.Session, error)
 	RevokeByID(ctx context.Context, id string) error
 	RevokeByUserID(ctx context.Context, userID string) error
 }
 
 // EmailVerificationTokenRepo defines the interface for email verification token persistence.
 type EmailVerificationTokenRepo interface {
-	Create(ctx context.Context, t *aservice.EmailVerificationToken) error
-	GetByTokenHash(ctx context.Context, tokenHash string) (*aservice.EmailVerificationToken, error)
-	GetActiveByUserID(ctx context.Context, userID string) (*aservice.EmailVerificationToken, error)
+	Create(ctx context.Context, t *authdto.EmailVerificationToken) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.EmailVerificationToken, error)
+	GetActiveByUserID(ctx context.Context, userID string) (*authdto.EmailVerificationToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
 }
 
 // PasswordResetTokenRepo defines the interface for password reset token persistence.
 type PasswordResetTokenRepo interface {
-	Create(ctx context.Context, t *aservice.PasswordResetToken) error
-	GetByTokenHash(ctx context.Context, tokenHash string) (*aservice.PasswordResetToken, error)
+	Create(ctx context.Context, t *authdto.PasswordResetToken) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.PasswordResetToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
 }
@@ -131,7 +129,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 	u := &usermodel.User{
 		Email:        req.Email,
 		PasswordHash: string(hash),
-		Role:         user.RoleUser,
+		Role:         usermodel.RoleUser,
 		IsActive:     true,
 	}
 
@@ -148,7 +146,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		if err != nil {
 			s.logger.Error("failed to generate verification token", zap.Error(err))
 		} else {
-			verificationToken := &aservice.EmailVerificationToken{
+			verificationToken := &authdto.EmailVerificationToken{
 				UserID:    u.ID,
 				TokenHash: tokenHash,
 				ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
@@ -177,10 +175,10 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 	return u, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, userAgent, ip string) (*aservice.TokenResponse, error) {
+func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, userAgent, ip string) (*authdto.TokenResponse, error) {
 	u, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
-		if errors.Is(err, user.ErrUserNotFound) {
+		if errors.Is(err, usermodel.ErrUserNotFound) {
 			return nil, errx.Unauthorized("invalid email or password")
 		}
 		return nil, errx.Internal("login failed", err.Error())
@@ -200,7 +198,7 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 	}
 
 	// Create session
-	session := &aservice.Session{
+	session := &authdto.Session{
 		UserID:    u.ID,
 		UserAgent: userAgent,
 		IPAddress: ip,
@@ -216,7 +214,7 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 		return nil, errx.Internal("token generation failed", err.Error())
 	}
 
-	refreshToken := &aservice.RefreshToken{
+	refreshToken := &authdto.RefreshToken{
 		SessionID: session.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
@@ -231,7 +229,7 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 		return nil, errx.Internal("access token generation failed", err.Error())
 	}
 
-	return &aservice.TokenResponse{
+	return &authdto.TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: plainToken,
 		TokenType:    "Bearer",
@@ -239,7 +237,7 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 	}, nil
 }
 
-func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aservice.TokenResponse, error) {
+func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*authdto.TokenResponse, error) {
 	tokenHash := s.tokenHelper.ParseRefreshTokenHash(plainToken)
 
 	token, err := s.refreshTokenRepo.GetByTokenHash(ctx, tokenHash)
@@ -272,7 +270,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*ase
 				return nil, errx.Internal("token generation failed", err.Error())
 			}
 
-			newToken := &aservice.RefreshToken{
+			newToken := &authdto.RefreshToken{
 				SessionID: session.ID,
 				TokenHash: newHash,
 				ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
@@ -291,7 +289,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*ase
 				return nil, errx.Internal("access token generation failed", err.Error())
 			}
 
-			return &aservice.TokenResponse{
+			return &authdto.TokenResponse{
 				AccessToken:  accessToken,
 				RefreshToken: newPlain,
 				TokenType:    "Bearer",
@@ -310,7 +308,11 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*ase
 	if err != nil {
 		return nil, errx.Internal("transaction begin failed", err.Error())
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			// Expected after successful commit
+		}
+	}()
 
 	graceTime := time.Now().Add(s.tokenHelper.GracePeriod())
 	if err := s.refreshTokenRepo.RevokeWithTx(ctx, tx, token.ID, &graceTime); err != nil {
@@ -322,7 +324,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*ase
 		return nil, errx.Internal("token generation failed", err.Error())
 	}
 
-	newToken := &aservice.RefreshToken{
+	newToken := &authdto.RefreshToken{
 		SessionID: session.ID,
 		TokenHash: newHash,
 		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
@@ -346,7 +348,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*ase
 		return nil, errx.Internal("access token generation failed", err.Error())
 	}
 
-	return &aservice.TokenResponse{
+	return &authdto.TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: newPlain,
 		TokenType:    "Bearer",
@@ -428,7 +430,7 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 		return errx.Internal("token generation failed", err.Error())
 	}
 
-	verificationToken := &aservice.EmailVerificationToken{
+	verificationToken := &authdto.EmailVerificationToken{
 		UserID:    u.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
@@ -462,7 +464,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		return errx.Internal("token generation failed", err.Error())
 	}
 
-	resetToken := &aservice.PasswordResetToken{
+	resetToken := &authdto.PasswordResetToken{
 		UserID:    u.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.emailCfg.PasswordResetTokenTTL),
@@ -525,7 +527,11 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 	if err != nil {
 		return errx.Internal("transaction begin failed", err.Error())
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			// Expected after successful commit
+		}
+	}()
 
 	if err := s.passwordResetTokenRepo.MarkUsed(ctx, resetToken.ID); err != nil {
 		return errx.Internal("token invalidation failed", err.Error())
@@ -562,16 +568,16 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 	return nil
 }
 
-func (s *AuthService) GetCurrentUser(ctx context.Context, userID string) (*aservice.UserResponse, error) {
+func (s *AuthService) GetCurrentUser(ctx context.Context, userID string) (*authdto.UserResponse, error) {
 	u, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, user.ErrUserNotFound) {
+		if errors.Is(err, usermodel.ErrUserNotFound) {
 			return nil, errx.Unauthorized("user not found")
 		}
 		return nil, errx.Internal("user lookup failed", err.Error())
 	}
 
-	return &aservice.UserResponse{
+	return &authdto.UserResponse{
 		ID:              u.ID,
 		Email:           u.Email,
 		Role:            u.Role,

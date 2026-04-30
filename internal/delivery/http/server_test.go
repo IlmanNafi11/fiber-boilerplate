@@ -154,7 +154,7 @@ func TestSuccessHelper_OK(t *testing.T) {
 }
 
 func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
-	os.Unsetenv("SWAGGER_ENABLED")
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Env:            "production",
@@ -172,7 +172,7 @@ func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
 }
 
 func TestSwaggerRoute_EnabledInDevelopment(t *testing.T) {
-	os.Unsetenv("SWAGGER_ENABLED")
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Env:            "development",

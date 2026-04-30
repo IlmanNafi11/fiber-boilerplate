@@ -10,69 +10,42 @@ import (
 )
 
 // setTestDBEnv sets all required DB env vars for testing.
-func setTestDBEnv() {
-	os.Setenv("JWT_SECRET", "test-jwt-secret-key")
-	os.Setenv("DB_HOST", "localhost")
-	os.Setenv("DB_USER", "testuser")
-	os.Setenv("DB_PASSWORD", "testpass")
-	os.Setenv("DB_NAME", "testdb")
+func setTestDBEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("DB_HOST", "localhost")
+	t.Setenv("DB_USER", "testuser")
+	t.Setenv("DB_PASSWORD", "testpass")
+	t.Setenv("DB_NAME", "testdb")
 }
 
 // unsetTestDBEnv clears all DB env vars.
-func unsetTestDBEnv() {
-	os.Unsetenv("JWT_SECRET")
-	os.Unsetenv("JWT_SECRET_PREVIOUS")
-	os.Unsetenv("JWT_ACCESS_TTL")
-	os.Unsetenv("JWT_REFRESH_TTL")
-	os.Unsetenv("JWT_REFRESH_GRACE_PERIOD")
-	os.Unsetenv("REGISTRATION_ENABLED")
-	os.Unsetenv("DB_HOST")
-	os.Unsetenv("DB_PORT")
-	os.Unsetenv("DB_USER")
-	os.Unsetenv("DB_PASSWORD")
-	os.Unsetenv("DB_NAME")
-	os.Unsetenv("DB_SSLMODE")
-	os.Unsetenv("DB_MAX_CONNS")
-	os.Unsetenv("DB_MIN_CONNS")
-	os.Unsetenv("DB_MAX_CONN_IDLE_TIME")
-	os.Unsetenv("DB_MAX_CONN_LIFETIME")
-
-	// Rate limit env vars
-	os.Unsetenv("RATE_LIMIT_LOGIN_MAX")
-	os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW")
-	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX")
-	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
-	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
-	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
-
-	// Email config env vars
-	os.Unsetenv("EMAIL_VERIFICATION_ENABLED")
-	os.Unsetenv("EMAIL_VERIFICATION_TOKEN_TTL")
-	os.Unsetenv("PASSWORD_RESET_TOKEN_TTL")
-
-	// SMTP env vars
-	os.Unsetenv("SMTP_HOST")
-	os.Unsetenv("SMTP_PORT")
-	os.Unsetenv("SMTP_USER")
-	os.Unsetenv("SMTP_PASSWORD")
-	os.Unsetenv("SMTP_FROM")
-
-	// Seeder env vars
-	os.Unsetenv("ADMIN_EMAIL")
-	os.Unsetenv("ADMIN_PASSWORD")
-	os.Unsetenv("DEMO_EMAIL")
-	os.Unsetenv("DEMO_PASSWORD")
-
-	// Swagger
-	os.Unsetenv("SWAGGER_ENABLED")
+func unsetTestDBEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"JWT_SECRET", "JWT_SECRET_PREVIOUS", "JWT_ACCESS_TTL", "JWT_REFRESH_TTL",
+		"JWT_REFRESH_GRACE_PERIOD", "REGISTRATION_ENABLED",
+		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE",
+		"DB_MAX_CONNS", "DB_MIN_CONNS", "DB_MAX_CONN_IDLE_TIME", "DB_MAX_CONN_LIFETIME",
+		"RATE_LIMIT_LOGIN_MAX", "RATE_LIMIT_LOGIN_WINDOW",
+		"RATE_LIMIT_FORGOT_PASSWORD_MAX", "RATE_LIMIT_FORGOT_PASSWORD_WINDOW",
+		"RATE_LIMIT_GLOBAL_MAX", "RATE_LIMIT_GLOBAL_WINDOW",
+		"EMAIL_VERIFICATION_ENABLED", "EMAIL_VERIFICATION_TOKEN_TTL",
+		"PASSWORD_RESET_TOKEN_TTL",
+		"SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
+		"ADMIN_EMAIL", "ADMIN_PASSWORD", "DEMO_EMAIL", "DEMO_PASSWORD",
+		"SWAGGER_ENABLED",
+	} {
+		require.NoError(t, os.Unsetenv(key))
+	}
 }
 
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	os.Unsetenv("APP_ENV")
-	os.Unsetenv("APP_PORT")
-	setTestDBEnv()
-	defer unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("APP_ENV"))
+	require.NoError(t, os.Unsetenv("APP_PORT"))
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -84,8 +57,8 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_MissingAppName(t *testing.T) {
-	os.Unsetenv("APP_NAME")
-	unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("APP_NAME"))
+	unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	assert.Nil(t, cfg)
@@ -96,8 +69,8 @@ func TestLoad_MissingAppName(t *testing.T) {
 func TestLoad_InvalidEnv(t *testing.T) {
 	t.Setenv("APP_ENV", "staging")
 	t.Setenv("APP_NAME", "test-app")
-	setTestDBEnv()
-	defer unsetTestDBEnv()
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	assert.Nil(t, cfg)
@@ -108,8 +81,8 @@ func TestLoad_ValidProduction(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("APP_NAME", "test-app")
 	t.Setenv("APP_PORT", "8080")
-	setTestDBEnv()
-	defer unsetTestDBEnv()
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -140,7 +113,7 @@ func TestDatabaseConfig_RequiredFields(t *testing.T) {
 	t.Setenv("DB_PASSWORD", "secret")
 	t.Setenv("DB_NAME", "myapp")
 	t.Setenv("DB_SSLMODE", "require")
-	defer unsetTestDBEnv()
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -158,25 +131,25 @@ func TestDatabaseConfig_Defaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
 	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
 	// Set only required DB fields, leave optional ones unset
-	os.Setenv("DB_HOST", "localhost")
-	os.Setenv("DB_USER", "user")
-	os.Setenv("DB_PASSWORD", "pass")
-	os.Setenv("DB_NAME", "db")
-	os.Unsetenv("DB_PORT")
-	os.Unsetenv("DB_SSLMODE")
-	os.Unsetenv("DB_MAX_CONNS")
-	os.Unsetenv("DB_MIN_CONNS")
-	os.Unsetenv("DB_MAX_CONN_IDLE_TIME")
-	os.Unsetenv("DB_MAX_CONN_LIFETIME")
+	t.Setenv("DB_HOST", "localhost")
+	t.Setenv("DB_USER", "user")
+	t.Setenv("DB_PASSWORD", "pass")
+	t.Setenv("DB_NAME", "db")
+	require.NoError(t, os.Unsetenv("DB_PORT"))
+	require.NoError(t, os.Unsetenv("DB_SSLMODE"))
+	require.NoError(t, os.Unsetenv("DB_MAX_CONNS"))
+	require.NoError(t, os.Unsetenv("DB_MIN_CONNS"))
+	require.NoError(t, os.Unsetenv("DB_MAX_CONN_IDLE_TIME"))
+	require.NoError(t, os.Unsetenv("DB_MAX_CONN_LIFETIME"))
 
 	// Rate limit env vars
-	os.Unsetenv("RATE_LIMIT_LOGIN_MAX")
-	os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW")
-	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX")
-	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
-	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
-	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
-	defer unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_LOGIN_MAX"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_GLOBAL_MAX"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW"))
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -192,7 +165,7 @@ func TestDatabaseConfig_Defaults(t *testing.T) {
 
 func TestDatabaseConfig_MissingRequired(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	unsetTestDBEnv()
+	unsetTestDBEnv(t)
 	// DB_HOST is not set
 
 	cfg, err := Load()
@@ -231,17 +204,17 @@ func TestDatabaseConfig_MigrateDSN(t *testing.T) {
 
 func TestLoad_RateLimitDefaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	os.Unsetenv("APP_ENV")
-	os.Unsetenv("APP_PORT")
-	setTestDBEnv()
+	require.NoError(t, os.Unsetenv("APP_ENV"))
+	require.NoError(t, os.Unsetenv("APP_PORT"))
+	setTestDBEnv(t)
 	// Ensure rate limit env vars are unset to test defaults
-	os.Unsetenv("RATE_LIMIT_LOGIN_MAX")
-	os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW")
-	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX")
-	os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW")
-	os.Unsetenv("RATE_LIMIT_GLOBAL_MAX")
-	os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW")
-	defer unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_LOGIN_MAX"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_LOGIN_WINDOW"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_MAX"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_GLOBAL_MAX"))
+	require.NoError(t, os.Unsetenv("RATE_LIMIT_GLOBAL_WINDOW"))
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -257,14 +230,14 @@ func TestLoad_RateLimitDefaults(t *testing.T) {
 
 func TestLoad_RateLimitCustom(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	setTestDBEnv()
+	setTestDBEnv(t)
 	t.Setenv("RATE_LIMIT_LOGIN_MAX", "10")
 	t.Setenv("RATE_LIMIT_LOGIN_WINDOW", "30m")
 	t.Setenv("RATE_LIMIT_FORGOT_PASSWORD_MAX", "5")
 	t.Setenv("RATE_LIMIT_FORGOT_PASSWORD_WINDOW", "1h")
 	t.Setenv("RATE_LIMIT_GLOBAL_MAX", "200")
 	t.Setenv("RATE_LIMIT_GLOBAL_WINDOW", "5m")
-	defer unsetTestDBEnv()
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -280,10 +253,10 @@ func TestLoad_RateLimitCustom(t *testing.T) {
 
 func TestLoad_EmailConfigDefaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	os.Unsetenv("APP_ENV")
-	os.Unsetenv("APP_PORT")
-	setTestDBEnv()
-	defer unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("APP_ENV"))
+	require.NoError(t, os.Unsetenv("APP_PORT"))
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -296,11 +269,11 @@ func TestLoad_EmailConfigDefaults(t *testing.T) {
 
 func TestLoad_EmailConfigCustom(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	setTestDBEnv()
+	setTestDBEnv(t)
 	t.Setenv("EMAIL_VERIFICATION_ENABLED", "false")
 	t.Setenv("EMAIL_VERIFICATION_TOKEN_TTL", "48h")
 	t.Setenv("PASSWORD_RESET_TOKEN_TTL", "30m")
-	defer unsetTestDBEnv()
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -313,10 +286,10 @@ func TestLoad_EmailConfigCustom(t *testing.T) {
 
 func TestLoad_SMTPConfigDefaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	os.Unsetenv("APP_ENV")
-	os.Unsetenv("APP_PORT")
-	setTestDBEnv()
-	defer unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("APP_ENV"))
+	require.NoError(t, os.Unsetenv("APP_PORT"))
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -331,13 +304,13 @@ func TestLoad_SMTPConfigDefaults(t *testing.T) {
 
 func TestLoad_SMTPConfigCustom(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	setTestDBEnv()
+	setTestDBEnv(t)
 	t.Setenv("SMTP_HOST", "mail.example.com")
 	t.Setenv("SMTP_PORT", "2525")
 	t.Setenv("SMTP_USER", "postmaster@example.com")
 	t.Setenv("SMTP_PASSWORD", "smtp-secret")
 	t.Setenv("SMTP_FROM", "no-reply@example.com")
-	defer unsetTestDBEnv()
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -352,18 +325,18 @@ func TestLoad_SMTPConfigCustom(t *testing.T) {
 
 func TestLoad_SeederConfigDefaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	os.Unsetenv("APP_ENV")
-	os.Unsetenv("APP_PORT")
-	setTestDBEnv()
+	require.NoError(t, os.Unsetenv("APP_ENV"))
+	require.NoError(t, os.Unsetenv("APP_PORT"))
+	setTestDBEnv(t)
 	// Ensure seeder env vars are unset
-	os.Unsetenv("ADMIN_EMAIL")
-	os.Unsetenv("ADMIN_PASSWORD")
-	os.Unsetenv("DEMO_EMAIL")
-	os.Unsetenv("DEMO_PASSWORD")
+	require.NoError(t, os.Unsetenv("ADMIN_EMAIL"))
+	require.NoError(t, os.Unsetenv("ADMIN_PASSWORD"))
+	require.NoError(t, os.Unsetenv("DEMO_EMAIL"))
+	require.NoError(t, os.Unsetenv("DEMO_PASSWORD"))
 
 	// Swagger
-	os.Unsetenv("SWAGGER_ENABLED")
-	defer unsetTestDBEnv()
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -377,12 +350,12 @@ func TestLoad_SeederConfigDefaults(t *testing.T) {
 
 func TestLoad_SeederConfigCustom(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	setTestDBEnv()
+	setTestDBEnv(t)
 	t.Setenv("ADMIN_EMAIL", "admin@test.com")
 	t.Setenv("ADMIN_PASSWORD", "admin123")
 	t.Setenv("DEMO_EMAIL", "demo@test.com")
 	t.Setenv("DEMO_PASSWORD", "demo123")
-	defer unsetTestDBEnv()
+	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -395,13 +368,13 @@ func TestLoad_SeederConfigCustom(t *testing.T) {
 }
 
 func TestSwaggerEnabled_DefaultDevelopment(t *testing.T) {
-	os.Unsetenv("SWAGGER_ENABLED")
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	s := &ServerConfig{Env: "development"}
 	assert.True(t, s.SwaggerEnabled(), "SwaggerEnabled should be true in development by default")
 }
 
 func TestSwaggerEnabled_DefaultProduction(t *testing.T) {
-	os.Unsetenv("SWAGGER_ENABLED")
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	s := &ServerConfig{Env: "production"}
 	assert.False(t, s.SwaggerEnabled(), "SwaggerEnabled should be false in production by default (T-09-01)")
 }

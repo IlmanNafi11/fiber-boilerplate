@@ -130,26 +130,6 @@ func (m *mockPasswordResetTokenRepo) MarkUsedByUserID(_ context.Context, userID 
 	return m.Called(userID).Error(0)
 }
 
-type mockEmailSender struct {
-	sent []string
-	err  error
-}
-
-func (m *mockEmailSender) SendVerificationEmail(_ context.Context, _, _ string) error {
-	m.sent = append(m.sent, "verification")
-	return m.err
-}
-
-func (m *mockEmailSender) SendPasswordResetEmail(_ context.Context, _, _ string) error {
-	m.sent = append(m.sent, "reset")
-	return m.err
-}
-
-func (m *mockEmailSender) SendPasswordChangedNotification(_ context.Context, _ string) error {
-	m.sent = append(m.sent, "changed")
-	return m.err
-}
-
 // --- CaptureEmailSender captures email arguments for integration tests ---
 
 type emailCapture struct {

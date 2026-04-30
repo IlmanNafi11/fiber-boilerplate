@@ -25,7 +25,11 @@ func RunMigrations(t testing.TB, dsn string) {
 	if err != nil {
 		t.Fatalf("failed to create migrator: %v", err)
 	}
-	defer m.Close()
+	defer func() {
+		if _, err := m.Close(); err != nil {
+			t.Logf("warning: failed to close migrator: %v", err)
+		}
+	}()
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		t.Fatalf("failed to run migrations: %v", err)

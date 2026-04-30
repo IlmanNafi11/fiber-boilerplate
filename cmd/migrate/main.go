@@ -48,7 +48,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create migrator: %v", err)
 	}
-	defer m.Close()
+	defer func() {
+		if _, err := m.Close(); err != nil {
+			log.Printf("warning: failed to close migrator: %v", err)
+		}
+	}()
 
 	switch command {
 	case "up":

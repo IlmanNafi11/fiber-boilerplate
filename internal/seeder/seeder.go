@@ -31,7 +31,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg config.SeederConfig, env s
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			// Expected "already committed" after successful commit
+		}
+	}()
 
 	createdUsers := 0
 	skippedUsers := 0
