@@ -2,177 +2,19 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
-	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-// --- Existing Mocks ---
-
-type mockRefreshTokenRepo struct {
-	mock.Mock
-}
-
-func (m *mockRefreshTokenRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*aservice.RefreshToken, error) {
-	args := m.Called(ctx, tokenHash)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*aservice.RefreshToken), args.Error(1)
-}
-
-func (m *mockRefreshTokenRepo) Create(ctx context.Context, t *aservice.RefreshToken) error {
-	return m.Called(ctx, t).Error(0)
-}
-
-func (m *mockRefreshTokenRepo) RevokeBySessionID(ctx context.Context, sessionID string) error {
-	return m.Called(ctx, sessionID).Error(0)
-}
-
-func (m *mockRefreshTokenRepo) RevokeByUserID(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockRefreshTokenRepo) RevokeWithTx(_ context.Context, _ pgx.Tx, _ string, _ *time.Time) error {
-	return nil
-}
-
-func (m *mockRefreshTokenRepo) CreateWithTx(_ context.Context, _ pgx.Tx, _ *aservice.RefreshToken) error {
-	return nil
-}
-
-type mockSessionRepo struct {
-	mock.Mock
-}
-
-func (m *mockSessionRepo) Create(ctx context.Context, s *aservice.Session) error {
-	return m.Called(ctx, s).Error(0)
-}
-
-func (m *mockSessionRepo) GetByID(ctx context.Context, id string) (*aservice.Session, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*aservice.Session), args.Error(1)
-}
-
-func (m *mockSessionRepo) RevokeByID(ctx context.Context, id string) error {
-	return m.Called(ctx, id).Error(0)
-}
-
-func (m *mockSessionRepo) RevokeByUserID(_ context.Context, _ string) error {
-	return nil
-}
-
-// --- Phase 6 Mocks ---
-
-type mockEmailVerificationTokenRepo struct {
-	mock.Mock
-}
-
-func (m *mockEmailVerificationTokenRepo) Create(_ context.Context, t *aservice.EmailVerificationToken) error {
-	t.ID = uuid.New().String()
-	return m.Called(t).Error(0)
-}
-
-func (m *mockEmailVerificationTokenRepo) GetByTokenHash(_ context.Context, tokenHash string) (*aservice.EmailVerificationToken, error) {
-	args := m.Called(tokenHash)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*aservice.EmailVerificationToken), args.Error(1)
-}
-
-func (m *mockEmailVerificationTokenRepo) GetActiveByUserID(_ context.Context, userID string) (*aservice.EmailVerificationToken, error) {
-	args := m.Called(userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*aservice.EmailVerificationToken), args.Error(1)
-}
-
-func (m *mockEmailVerificationTokenRepo) MarkUsed(_ context.Context, id string) error {
-	return m.Called(id).Error(0)
-}
-
-func (m *mockEmailVerificationTokenRepo) MarkUsedByUserID(_ context.Context, userID string) error {
-	return m.Called(userID).Error(0)
-}
-
-type mockPasswordResetTokenRepo struct {
-	mock.Mock
-}
-
-func (m *mockPasswordResetTokenRepo) Create(_ context.Context, t *aservice.PasswordResetToken) error {
-	t.ID = uuid.New().String()
-	return m.Called(t).Error(0)
-}
-
-func (m *mockPasswordResetTokenRepo) GetByTokenHash(_ context.Context, tokenHash string) (*aservice.PasswordResetToken, error) {
-	args := m.Called(tokenHash)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*aservice.PasswordResetToken), args.Error(1)
-}
-
-func (m *mockPasswordResetTokenRepo) MarkUsed(_ context.Context, id string) error {
-	return m.Called(id).Error(0)
-}
-
-func (m *mockPasswordResetTokenRepo) MarkUsedByUserID(_ context.Context, userID string) error {
-	return m.Called(userID).Error(0)
-}
-
-type mockEmailSender struct {
-	sent []string
-	err  error
-}
-
-func (m *mockEmailSender) SendVerificationEmail(_ context.Context, _, _ string) error {
-	m.sent = append(m.sent, "verification")
-	return m.err
-}
-
-func (m *mockEmailSender) SendPasswordResetEmail(_ context.Context, _, _ string) error {
-	m.sent = append(m.sent, "reset")
-	return m.err
-}
-
-func (m *mockEmailSender) SendPasswordChangedNotification(_ context.Context, _ string) error {
-	m.sent = append(m.sent, "changed")
-	return m.err
-}
-
-// --- Helpers ---
-
-func testEmailConfig(enabled bool) config.EmailConfig {
-	return config.EmailConfig{
-		VerificationEnabled:   enabled,
-		VerificationTokenTTL:  24 * time.Hour,
-		PasswordResetTokenTTL: 15 * time.Minute,
-	}
-}
-
-func sha256Hex(plain string) string {
-	h := sha256.Sum256([]byte(plain))
-	return hex.EncodeToString(h[:])
-}
-
-// --- Existing Logout Tests ---
+// --- Logout Tests ---
 
 func TestLogout_ReturnsUnauthorizedForUnknownToken(t *testing.T) {
 	mockRT := new(mockRefreshTokenRepo)
@@ -292,7 +134,7 @@ func TestLogout_SuccessRevokesActiveSession(t *testing.T) {
 	mockSess.AssertExpectations(t)
 }
 
-// --- Phase 6 Tests ---
+// --- VerifyEmail Tests ---
 
 func TestVerifyEmail_InvalidToken(t *testing.T) {
 	mockEvTokenRepo := new(mockEmailVerificationTokenRepo)
@@ -386,6 +228,8 @@ func TestVerifyEmail_TokenLookupInternalError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 500, err.(*errx.AppError).HTTPStatus)
 }
+
+// --- ResetPassword Tests ---
 
 func TestResetPassword_InvalidToken(t *testing.T) {
 	mockResetRepo := new(mockPasswordResetTokenRepo)
@@ -530,3 +374,198 @@ func TestResetPassword_TokenLookupInternalError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 500, err.(*errx.AppError).HTTPStatus)
 }
+
+// --- Register Unit Tests ---
+
+func TestRegister_DisabledReturnsForbidden(t *testing.T) {
+	svc := &AuthService{
+		cfg:         testAuthConfig(),
+		tokenHelper: NewTokenHelper(testAuthConfig()),
+		logger:      zap.NewNop(),
+	}
+	// Override registration enabled
+	svc.cfg.RegistrationEnabled = false
+
+	_, err := svc.Register(context.Background(), &aservice.RegisterRequest{
+		Email:    "test@example.com",
+		Password: "Password123",
+	})
+	require.Error(t, err)
+	assert.Equal(t, 403, err.(*errx.AppError).HTTPStatus)
+	assert.Contains(t, err.(*errx.AppError).Message, "registration is currently disabled")
+}
+
+func TestRegister_PasswordNoLetter(t *testing.T) {
+	svc := &AuthService{
+		cfg:         testAuthConfig(),
+		tokenHelper: NewTokenHelper(testAuthConfig()),
+		logger:      zap.NewNop(),
+		emailCfg:    testEmailConfig(false),
+	}
+
+	_, err := svc.Register(context.Background(), &aservice.RegisterRequest{
+		Email:    "test@example.com",
+		Password: "12345678",
+	})
+	require.Error(t, err)
+	assert.Equal(t, 400, err.(*errx.AppError).HTTPStatus)
+	assert.Contains(t, err.(*errx.AppError).Message, "letter and one digit")
+}
+
+func TestRegister_PasswordNoDigit(t *testing.T) {
+	svc := &AuthService{
+		cfg:         testAuthConfig(),
+		tokenHelper: NewTokenHelper(testAuthConfig()),
+		logger:      zap.NewNop(),
+		emailCfg:    testEmailConfig(false),
+	}
+
+	_, err := svc.Register(context.Background(), &aservice.RegisterRequest{
+		Email:    "test@example.com",
+		Password: "allletters",
+	})
+	require.Error(t, err)
+	assert.Equal(t, 400, err.(*errx.AppError).HTTPStatus)
+	assert.Contains(t, err.(*errx.AppError).Message, "letter and one digit")
+}
+
+// --- RefreshToken Unit Tests ---
+
+func TestRefreshToken_TokenNotFound(t *testing.T) {
+	mockRT := new(mockRefreshTokenRepo)
+	mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
+		Return(nil, errx.ErrNotFound)
+
+	svc := &AuthService{
+		refreshTokenRepo: mockRT,
+		tokenHelper:      NewTokenHelper(testAuthConfig()),
+	}
+
+	_, err := svc.RefreshToken(context.Background(), "some-token")
+	require.Error(t, err)
+	assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
+	mockRT.AssertExpectations(t)
+}
+
+func TestRefreshToken_ExpiredToken(t *testing.T) {
+	mockRT := new(mockRefreshTokenRepo)
+	mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
+		Return(&aservice.RefreshToken{
+			ID:        "token-1",
+			SessionID: "session-1",
+			ExpiresAt: time.Now().Add(-1 * time.Hour),
+		}, nil)
+
+	svc := &AuthService{
+		refreshTokenRepo: mockRT,
+		tokenHelper:      NewTokenHelper(testAuthConfig()),
+	}
+
+	_, err := svc.RefreshToken(context.Background(), "some-token")
+	require.Error(t, err)
+	assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
+	assert.Contains(t, err.(*errx.AppError).Message, "expired")
+	mockRT.AssertExpectations(t)
+}
+
+func TestRefreshToken_SessionNotFound(t *testing.T) {
+	mockRT := new(mockRefreshTokenRepo)
+	mockSess := new(mockSessionRepo)
+
+	mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
+		Return(&aservice.RefreshToken{
+			ID:        "token-1",
+			SessionID: "session-1",
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}, nil)
+
+	mockSess.On("GetByID", mock.Anything, "session-1").
+		Return(nil, errx.ErrNotFound)
+
+	svc := &AuthService{
+		refreshTokenRepo: mockRT,
+		sessionRepo:      mockSess,
+		tokenHelper:      NewTokenHelper(testAuthConfig()),
+	}
+
+	_, err := svc.RefreshToken(context.Background(), "some-token")
+	require.Error(t, err)
+	assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
+	mockRT.AssertExpectations(t)
+	mockSess.AssertExpectations(t)
+}
+
+func TestRefreshToken_RevokedSession(t *testing.T) {
+	mockRT := new(mockRefreshTokenRepo)
+	mockSess := new(mockSessionRepo)
+
+	revokedAt := time.Now().Add(-1 * time.Hour)
+
+	mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
+		Return(&aservice.RefreshToken{
+			ID:        "token-1",
+			SessionID: "session-1",
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}, nil)
+
+	mockSess.On("GetByID", mock.Anything, "session-1").
+		Return(&aservice.Session{
+			ID:        "session-1",
+			RevokedAt: &revokedAt,
+		}, nil)
+
+	svc := &AuthService{
+		refreshTokenRepo: mockRT,
+		sessionRepo:      mockSess,
+		tokenHelper:      NewTokenHelper(testAuthConfig()),
+	}
+
+	_, err := svc.RefreshToken(context.Background(), "some-token")
+	require.Error(t, err)
+	assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
+	assert.Contains(t, err.(*errx.AppError).Message, "revoked")
+	mockRT.AssertExpectations(t)
+	mockSess.AssertExpectations(t)
+}
+
+func TestRefreshToken_ReuseOutsideGracePeriod(t *testing.T) {
+	mockRT := new(mockRefreshTokenRepo)
+	mockSess := new(mockSessionRepo)
+
+	revokedAt := time.Now().Add(-2 * time.Minute)
+	graceUntil := time.Now().Add(-1 * time.Minute) // grace period already passed
+
+	mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
+		Return(&aservice.RefreshToken{
+			ID:         "token-1",
+			SessionID:  "session-1",
+			RevokedAt:  &revokedAt,
+			ExpiresAt:  time.Now().Add(24 * time.Hour),
+			GraceUntil: &graceUntil,
+		}, nil)
+
+	mockSess.On("GetByID", mock.Anything, "session-1").
+		Return(&aservice.Session{ID: "session-1"}, nil)
+
+	mockSess.On("RevokeByID", mock.Anything, "session-1").Return(nil)
+	mockRT.On("RevokeBySessionID", mock.Anything, "session-1").Return(nil)
+
+	svc := &AuthService{
+		refreshTokenRepo: mockRT,
+		sessionRepo:      mockSess,
+		tokenHelper:      NewTokenHelper(testAuthConfig()),
+		logger:           zap.NewNop(),
+	}
+
+	_, err := svc.RefreshToken(context.Background(), "some-token")
+	require.Error(t, err)
+	assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
+	assert.Contains(t, err.(*errx.AppError).Message, "reuse detected")
+	mockRT.AssertExpectations(t)
+	mockSess.AssertExpectations(t)
+}
+
+// NOTE: Login, Register (success path), GetCurrentUser, ResendVerification,
+// ForgotPassword, RefreshToken (normal rotation + grace rotation) require
+// concrete *userrepo.UserRepository and are tested in integration tests
+// (see 10-03-PLAN.md).
