@@ -62,6 +62,9 @@ func unsetTestDBEnv() {
 	os.Unsetenv("ADMIN_PASSWORD")
 	os.Unsetenv("DEMO_EMAIL")
 	os.Unsetenv("DEMO_PASSWORD")
+
+	// Swagger
+	os.Unsetenv("SWAGGER_ENABLED")
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -357,6 +360,9 @@ func TestLoad_SeederConfigDefaults(t *testing.T) {
 	os.Unsetenv("ADMIN_PASSWORD")
 	os.Unsetenv("DEMO_EMAIL")
 	os.Unsetenv("DEMO_PASSWORD")
+
+	// Swagger
+	os.Unsetenv("SWAGGER_ENABLED")
 	defer unsetTestDBEnv()
 
 	cfg, err := Load()
@@ -386,4 +392,34 @@ func TestLoad_SeederConfigCustom(t *testing.T) {
 	assert.Equal(t, "admin123", cfg.Seeder.AdminPassword)
 	assert.Equal(t, "demo@test.com", cfg.Seeder.DemoEmail)
 	assert.Equal(t, "demo123", cfg.Seeder.DemoPassword)
+}
+
+func TestSwaggerEnabled_DefaultDevelopment(t *testing.T) {
+	os.Unsetenv("SWAGGER_ENABLED")
+	s := &ServerConfig{Env: "development"}
+	assert.True(t, s.SwaggerEnabled(), "SwaggerEnabled should be true in development by default")
+}
+
+func TestSwaggerEnabled_DefaultProduction(t *testing.T) {
+	os.Unsetenv("SWAGGER_ENABLED")
+	s := &ServerConfig{Env: "production"}
+	assert.False(t, s.SwaggerEnabled(), "SwaggerEnabled should be false in production by default (T-09-01)")
+}
+
+func TestSwaggerEnabled_ExplicitTrue(t *testing.T) {
+	t.Setenv("SWAGGER_ENABLED", "true")
+	s := &ServerConfig{Env: "production"}
+	assert.True(t, s.SwaggerEnabled(), "SWAGGER_ENABLED=true should override production default")
+}
+
+func TestSwaggerEnabled_ExplicitFalse(t *testing.T) {
+	t.Setenv("SWAGGER_ENABLED", "false")
+	s := &ServerConfig{Env: "development"}
+	assert.False(t, s.SwaggerEnabled(), "SWAGGER_ENABLED=false should override development default")
+}
+
+func TestSwaggerEnabled_InvalidValue(t *testing.T) {
+	t.Setenv("SWAGGER_ENABLED", "maybe")
+	s := &ServerConfig{Env: "development"}
+	assert.False(t, s.SwaggerEnabled(), "invalid SWAGGER_ENABLED value should default to false")
 }

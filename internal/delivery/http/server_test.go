@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"io"
+	"os"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -150,4 +151,41 @@ func TestSuccessHelper_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.True(t, result.Success)
 	assert.Equal(t, "test message", result.Message)
+}
+
+func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
+	os.Unsetenv("SWAGGER_ENABLED")
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Env:            "production",
+			Port:           "3000",
+			Name:           "test-app",
+			AllowedOrigins: "*",
+		},
+	}
+	app := NewServer(cfg, zap.NewNop(), nil)
+
+	req := httptest.NewRequest("GET", "/swagger/index.html", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 404, resp.StatusCode, "/swagger/* should return 404 when SwaggerEnabled is false (T-09-01)")
+}
+
+func TestSwaggerRoute_EnabledInDevelopment(t *testing.T) {
+	os.Unsetenv("SWAGGER_ENABLED")
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Env:            "development",
+			Port:           "3000",
+			Name:           "test-app",
+			AllowedOrigins: "*",
+		},
+	}
+	app := NewServer(cfg, zap.NewNop(), nil)
+
+	req := httptest.NewRequest("GET", "/swagger/index.html", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	// swaggo.HandlerDefault returns non-404 when route exists (may be 500 if docs not loaded in test)
+	assert.NotEqual(t, 404, resp.StatusCode, "/swagger/* should be registered when SwaggerEnabled is true")
 }
