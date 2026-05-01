@@ -1,0 +1,13 @@
+.git
+.planning
+.env
+tmp/
+bin/
+*.md
+!README.md
+vendor/
+.gitignore
+.golangci.yml
+.air.toml
+docker-compose*.yml
+Dockerfile*

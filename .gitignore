@@ -41,3 +41,8 @@ Thumbs.db
 
 # Air
 tmp/
+-e 
+# Go module cache (dev Docker)
+.cache/
+
+seed

@@ -1,0 +1,35 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.25"
+
+linters:
+  default: none
+  enable:
+    # Default recommended set
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - unused
+    # Security-focused analysis
+    - gosec
+  settings:
+    errcheck:
+      # Check for unchecked errors in type assertions
+      check-type-assertions: true
+      # Check for unchecked errors in blank assignments
+      check-blank: false
+  exclusions:
+    rules:
+      # Type assertions in test mocks and assertions are fail-fast by design
+      - path: _test\.go
+        linters:
+          - errcheck
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+  # Maximum count of issues with the same text
+  max-same-issues: 3

@@ -1,0 +1,21 @@
+FROM golang:1.25-alpine
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /app
+
+# Cache dependency downloads
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Install Air for hot reload (CGO_ENABLED=0 — no C deps needed, avoids musl-dev requirement)
+RUN CGO_ENABLED=0 go install github.com/air-verse/air@v1.65.1
+
+# Run as non-root user for defense-in-depth
+RUN adduser -D -u 1000 appuser
+USER appuser
+ENV GOMODCACHE=/app/.cache/go-mod
+
+EXPOSE 3000
+
+CMD ["air"]
