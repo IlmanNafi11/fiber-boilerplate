@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	zapmiddleware "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/contrib/v3/swaggo"
+	zapmiddleware "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/recover"

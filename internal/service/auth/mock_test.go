@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
+	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 )
@@ -150,7 +150,7 @@ type emailCapture struct {
 }
 
 type CaptureEmailSender struct {
-	mu             sync.Mutex
+	mu                 sync.Mutex
 	VerificationEmails []emailCapture
 	ResetEmails        []emailCapture
 	ChangedEmails      []string

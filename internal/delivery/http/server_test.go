@@ -3,8 +3,8 @@ package http
 import (
 	"encoding/json"
 	"io"
-	"os"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 

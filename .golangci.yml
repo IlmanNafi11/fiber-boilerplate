@@ -5,7 +5,7 @@ run:
   go: "1.25"
 
 linters:
-  disable-all: true
+  default: none
   enable:
     # Default recommended set
     - govet
@@ -15,17 +15,20 @@ linters:
     - unused
     # Security-focused analysis
     - gosec
-
-linters-settings:
-  errcheck:
-    # Check for unchecked errors in type assertions
-    check-type-assertions: true
-    # Check for unchecked errors in blank assignments
-    check-blank: false
+  settings:
+    errcheck:
+      # Check for unchecked errors in type assertions
+      check-type-assertions: true
+      # Check for unchecked errors in blank assignments
+      check-blank: false
+  exclusions:
+    rules:
+      # Type assertions in test mocks and assertions are fail-fast by design
+      - path: _test\.go
+        linters:
+          - errcheck
 
 issues:
-  # Don't exclude issues by default rules
-  exclude-use-default: false
   # Maximum issues count per one linter
   max-issues-per-linter: 50
   # Maximum count of issues with the same text

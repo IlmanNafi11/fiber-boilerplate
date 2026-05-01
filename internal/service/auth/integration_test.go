@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
-	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
+	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
+	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/ilmannafi/fiber-boilerplate/testhelpers"
 	"go.uber.org/zap"
