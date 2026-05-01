@@ -44,3 +44,5 @@ tmp/
 -e 
 # Go module cache (dev Docker)
 .cache/
+
+seed
