@@ -366,32 +366,48 @@ func TestLoad_SeederConfigCustom(t *testing.T) {
 	assert.Equal(t, "demo123", cfg.Seeder.DemoPassword)
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func TestSwaggerEnabled_DefaultDevelopment(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	s := &ServerConfig{Env: "development"}
 	assert.True(t, s.SwaggerEnabled(), "SwaggerEnabled should be true in development by default")
 }
 
 func TestSwaggerEnabled_DefaultProduction(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	s := &ServerConfig{Env: "production"}
 	assert.False(t, s.SwaggerEnabled(), "SwaggerEnabled should be false in production by default (T-09-01)")
 }
 
 func TestSwaggerEnabled_ExplicitTrue(t *testing.T) {
-	t.Setenv("SWAGGER_ENABLED", "true")
-	s := &ServerConfig{Env: "production"}
-	assert.True(t, s.SwaggerEnabled(), "SWAGGER_ENABLED=true should override production default")
+	s := &ServerConfig{Env: "production", Swagger: boolPtr(true)}
+	assert.True(t, s.SwaggerEnabled(), "explicit Swagger=true should override production default")
 }
 
 func TestSwaggerEnabled_ExplicitFalse(t *testing.T) {
-	t.Setenv("SWAGGER_ENABLED", "false")
-	s := &ServerConfig{Env: "development"}
-	assert.False(t, s.SwaggerEnabled(), "SWAGGER_ENABLED=false should override development default")
+	s := &ServerConfig{Env: "development", Swagger: boolPtr(false)}
+	assert.False(t, s.SwaggerEnabled(), "explicit Swagger=false should override development default")
 }
 
-func TestSwaggerEnabled_InvalidValue(t *testing.T) {
+func TestLoad_SwaggerInvalidValueDefaultsFalse(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv(t)
 	t.Setenv("SWAGGER_ENABLED", "maybe")
-	s := &ServerConfig{Env: "development"}
-	assert.False(t, s.SwaggerEnabled(), "invalid SWAGGER_ENABLED value should default to false")
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Server.Swagger)
+	assert.False(t, *cfg.Server.Swagger, "invalid SWAGGER_ENABLED should parse to false")
+	assert.False(t, cfg.Server.SwaggerEnabled())
+}
+
+func TestLoad_SwaggerUnsetLeavesNil(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv(t)
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Nil(t, cfg.Server.Swagger, "unset SWAGGER_ENABLED should leave Swagger nil for Env-based derive")
 }

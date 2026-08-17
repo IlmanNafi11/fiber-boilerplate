@@ -35,6 +35,9 @@ type ServerConfig struct {
 	Port           string `validate:"required"`
 	Name           string `validate:"required"`
 	AllowedOrigins string
+	// Swagger holds the parsed SWAGGER_ENABLED override. Nil means unset, so
+	// SwaggerEnabled() derives from Env. Populated only in Load().
+	Swagger *bool
 }
 
 type DatabaseConfig struct {
@@ -89,6 +92,7 @@ func Load() (*Config, error) {
 			Port:           getEnvWithDefault("APP_PORT", "3000"),
 			Name:           os.Getenv("APP_NAME"),
 			AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
+			Swagger:        getEnvBoolPtr("SWAGGER_ENABLED"),
 		},
 		Database: DatabaseConfig{
 			Host:            os.Getenv("DB_HOST"),
@@ -189,6 +193,20 @@ func getEnvBoolWithDefault(key string, defaultVal bool) bool {
 	return b
 }
 
+// getEnvBoolPtr parses key into a *bool: nil when unset (so callers derive a
+// default), false when set but unparseable, otherwise the parsed value.
+func getEnvBoolPtr(key string) *bool {
+	val := os.Getenv(key)
+	if val == "" {
+		return nil
+	}
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		b = false
+	}
+	return &b
+}
+
 func (d *DatabaseConfig) DSN() string {
 	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		d.User, d.Password, d.Host, d.Port, d.Name, d.SSLMode)
@@ -199,19 +217,12 @@ func (d *DatabaseConfig) MigrateDSN() string {
 		d.User, d.Password, d.Host, d.Port, d.Name, d.SSLMode)
 }
 
-// SwaggerEnabled reports whether Swagger UI should be served.
-// Uses SWAGGER_ENABLED env var with APP_ENV fallback:
-//   - If SWAGGER_ENABLED is set → use that value
-//   - If APP_ENV == "production" → false
-//   - Otherwise → true (default on in development)
+// SwaggerEnabled reports whether Swagger UI should be served. It derives purely
+// from struct fields (no env access): an explicit Swagger override wins,
+// otherwise Swagger is on outside production.
 func (s *ServerConfig) SwaggerEnabled() bool {
-	val := os.Getenv("SWAGGER_ENABLED")
-	if val != "" {
-		enabled, err := strconv.ParseBool(val)
-		if err != nil {
-			return false
-		}
-		return enabled
+	if s.Swagger != nil {
+		return *s.Swagger
 	}
 	return s.Env != "production"
 }

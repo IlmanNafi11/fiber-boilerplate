@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -174,7 +173,6 @@ func TestSuccessHelper_OK(t *testing.T) {
 }
 
 func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Env:            "production",
@@ -192,7 +190,6 @@ func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
 }
 
 func TestSwaggerRoute_EnabledInDevelopment(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Env:            "development",
