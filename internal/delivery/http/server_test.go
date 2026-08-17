@@ -95,9 +95,9 @@ func TestErrorHandler_AppError(t *testing.T) {
 	var result response.Response
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.False(t, result.Success)
+	assert.Equal(t, "BAD_REQUEST", result.Code)
 	assert.Equal(t, "invalid input", result.Message)
-	require.Len(t, result.Errors, 1)
-	assert.Equal(t, "invalid input", result.Errors[0].Message)
+	assert.Nil(t, result.Errors)
 }
 
 func TestErrorHandler_ValidationErrors(t *testing.T) {

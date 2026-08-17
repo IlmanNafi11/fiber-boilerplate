@@ -26,8 +26,8 @@ func ErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 			}
 			return c.Status(e.HTTPStatus).JSON(Response{
 				Success: false,
+				Code:    e.Code,
 				Message: e.Message,
-				Errors:  []ErrorItem{{Message: e.Message}},
 			})
 
 		case validator.ValidationErrors:
@@ -37,6 +37,7 @@ func ErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 			}
 			return c.Status(http.StatusUnprocessableEntity).JSON(Response{
 				Success: false,
+				Code:    "VALIDATION_ERROR",
 				Message: "Validation failed",
 				Errors:  errItems,
 			})
@@ -49,13 +50,14 @@ func ErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 				)
 			}
 			msg := e.Message
+			code := fiberErrorCode(e.Code)
 			if e.Code >= 500 {
 				msg = "Internal Server Error"
 			}
 			return c.Status(e.Code).JSON(Response{
 				Success: false,
+				Code:    code,
 				Message: msg,
-				Errors:  []ErrorItem{{Message: msg}},
 			})
 
 		default:
@@ -64,10 +66,37 @@ func ErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 			)
 			return c.Status(http.StatusInternalServerError).JSON(Response{
 				Success: false,
+				Code:    "INTERNAL_ERROR",
 				Message: "Internal Server Error",
-				Errors:  []ErrorItem{{Message: "Internal Server Error"}},
 			})
 		}
+	}
+}
+
+// fiberErrorCode maps a *fiber.Error HTTP status to a stable SNAKE_CASE machine
+// code, mirroring the codes produced by errx constructors. Any 5xx is masked to
+// INTERNAL_ERROR so internal failures share one opaque code.
+func fiberErrorCode(status int) string {
+	if status >= 500 {
+		return "INTERNAL_ERROR"
+	}
+	switch status {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	case http.StatusUnprocessableEntity:
+		return "VALIDATION_ERROR"
+	case http.StatusTooManyRequests:
+		return "TOO_MANY_REQUESTS"
+	default:
+		return "ERROR"
 	}
 }
 
