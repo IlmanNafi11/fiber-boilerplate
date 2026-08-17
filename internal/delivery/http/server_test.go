@@ -50,6 +50,26 @@ func TestRecover(t *testing.T) {
 	assert.Equal(t, "Internal Server Error", result.Message)
 }
 
+func TestPanicRoute_RegisteredOutsideProduction(t *testing.T) {
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
+	req := httptest.NewRequest("GET", "/panic", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	// Route exists; recover middleware turns the panic into a 500.
+	assert.Equal(t, 500, resp.StatusCode)
+}
+
+func TestPanicRoute_NotRegisteredInProduction(t *testing.T) {
+	cfg := testConfig("*")
+	cfg.Server.Env = "production"
+	app := NewServer(cfg, zap.NewNop(), nil)
+	req := httptest.NewRequest("GET", "/panic", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	// Route is not registered in production, so Fiber returns 404.
+	assert.Equal(t, 404, resp.StatusCode)
+}
+
 func TestRequestID(t *testing.T) {
 	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 	req := httptest.NewRequest("GET", "/", nil)

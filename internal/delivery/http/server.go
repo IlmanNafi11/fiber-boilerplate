@@ -90,17 +90,23 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		},
 	}))
 
-	// 5. Root routes — NOT rate-limited (D-14)
+	// 5. Root & infra-probe routes — NOT rate-limited (D-14).
+	// "/" and "/health" are infra probes: orchestrators/load balancers read only
+	// their HTTP status code, so they sit outside the /api/v1 response envelope
+	// intentionally (not a silent exception).
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendString("OK")
 	})
 
-	// Panic test route (used by tests)
-	app.Get("/panic", func(c fiber.Ctx) error {
-		panic("test panic")
-	})
+	// Panic test route — exercises the recover middleware. Registered only
+	// outside production so a live deployment can never trip it.
+	if cfg.Server.Env != "production" {
+		app.Get("/panic", func(c fiber.Ctx) error {
+			panic("test panic")
+		})
+	}
 
-	// Health check — not rate-limited, no auth required (D-18, TOOL-04)
+	// Health check — infra probe, not rate-limited, no auth required (D-18, TOOL-04).
 	healthHandler := handler.NewHealthHandler(pool)
 	app.Get("/health", healthHandler.Check)
 
