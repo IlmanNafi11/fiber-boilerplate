@@ -49,20 +49,6 @@ func (r *PasswordResetTokenRepository) GetByTokenHash(ctx context.Context, token
 	return t, nil
 }
 
-func (r *PasswordResetTokenRepository) MarkUsed(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
-		id,
-	)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errx.ErrNotFound
-	}
-	return nil
-}
-
 func (r *PasswordResetTokenRepository) MarkUsedWithTx(ctx context.Context, tx pgx.Tx, id string) error {
 	tag, err := tx.Exec(ctx,
 		`UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,

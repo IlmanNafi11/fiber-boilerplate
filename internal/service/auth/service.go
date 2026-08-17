@@ -22,7 +22,6 @@ type RefreshTokenRepo interface {
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.RefreshToken, error)
 	Create(ctx context.Context, t *authdto.RefreshToken) error
 	RevokeBySessionID(ctx context.Context, sessionID string) error
-	RevokeByUserID(ctx context.Context, userID string) error
 	RevokeWithTx(ctx context.Context, tx pgx.Tx, id string, graceUntil *time.Time) error
 	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.RefreshToken) error
 	RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
@@ -33,7 +32,6 @@ type SessionRepo interface {
 	Create(ctx context.Context, s *authdto.Session) error
 	GetByID(ctx context.Context, id string) (*authdto.Session, error)
 	RevokeByID(ctx context.Context, id string) error
-	RevokeByUserID(ctx context.Context, userID string) error
 	RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 }
 
@@ -41,7 +39,6 @@ type SessionRepo interface {
 type EmailVerificationTokenRepo interface {
 	Create(ctx context.Context, t *authdto.EmailVerificationToken) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.EmailVerificationToken, error)
-	GetActiveByUserID(ctx context.Context, userID string) (*authdto.EmailVerificationToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
 }
@@ -50,7 +47,6 @@ type EmailVerificationTokenRepo interface {
 type PasswordResetTokenRepo interface {
 	Create(ctx context.Context, t *authdto.PasswordResetToken) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.PasswordResetToken, error)
-	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
 	MarkUsedWithTx(ctx context.Context, tx pgx.Tx, id string) error
 }

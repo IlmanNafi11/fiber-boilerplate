@@ -49,25 +49,6 @@ func (r *EmailVerificationTokenRepository) GetByTokenHash(ctx context.Context, t
 	return t, nil
 }
 
-func (r *EmailVerificationTokenRepository) GetActiveByUserID(ctx context.Context, userID string) (*auth.EmailVerificationToken, error) {
-	t := &auth.EmailVerificationToken{}
-	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, token_hash, expires_at, used_at, created_at
-		 FROM email_verification_tokens
-		 WHERE user_id = $1 AND used_at IS NULL
-		 ORDER BY created_at DESC LIMIT 1`,
-		userID,
-	).Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt)
-
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errx.ErrNotFound
-		}
-		return nil, err
-	}
-	return t, nil
-}
-
 func (r *EmailVerificationTokenRepository) MarkUsed(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE email_verification_tokens SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
