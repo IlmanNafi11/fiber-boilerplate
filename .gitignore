@@ -1,4 +1,9 @@
 .planning
+
+# Workflow artifacts (agent planning/spec — not part of the deliverable)
+SPEC.md
+tasks/
+idea-refine/
 .serena
 .mcp.json
 CLAUDE.md
