@@ -10,6 +10,7 @@ import (
 	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
 	usermodel "github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
+	"github.com/ilmannafi/fiber-boilerplate/internal/service/email"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -51,13 +52,6 @@ type PasswordResetTokenRepo interface {
 	MarkUsedWithTx(ctx context.Context, tx pgx.Tx, id string) error
 }
 
-// EmailSender defines the interface for sending transactional emails.
-type EmailSender interface {
-	SendVerificationEmail(ctx context.Context, to, token string) error
-	SendPasswordResetEmail(ctx context.Context, to, token string) error
-	SendPasswordChangedNotification(ctx context.Context, to string) error
-}
-
 type AuthService struct {
 	userRepo                   *userrepo.UserRepository
 	sessionRepo                SessionRepo
@@ -65,7 +59,7 @@ type AuthService struct {
 	emailVerificationTokenRepo EmailVerificationTokenRepo
 	passwordResetTokenRepo     PasswordResetTokenRepo
 	tokenHelper                *TokenHelper
-	emailSender                EmailSender
+	emailSender                email.EmailSender
 	cfg                        config.AuthConfig
 	emailCfg                   config.EmailConfig
 	logger                     *zap.Logger
@@ -79,7 +73,7 @@ func NewAuthService(
 	emailVerificationTokenRepo EmailVerificationTokenRepo,
 	passwordResetTokenRepo PasswordResetTokenRepo,
 	tokenHelper *TokenHelper,
-	emailSender EmailSender,
+	emailSender email.EmailSender,
 	cfg config.AuthConfig,
 	emailCfg config.EmailConfig,
 	logger *zap.Logger,
@@ -105,18 +99,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		return nil, errx.Forbidden("registration is currently disabled")
 	}
 
-	// Supplementary password validation: at least 1 letter and 1 digit
-	hasLetter := false
-	hasDigit := false
-	for _, c := range req.Password {
-		if unicode.IsLetter(c) {
-			hasLetter = true
-		}
-		if unicode.IsDigit(c) {
-			hasDigit = true
-		}
-	}
-	if !hasLetter || !hasDigit {
+	if !passwordHasLetterAndDigit(req.Password) {
 		return nil, errx.BadRequest("password must contain at least one letter and one digit")
 	}
 
@@ -208,33 +191,15 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 		return nil, errx.Internal("session creation failed", err.Error())
 	}
 
-	// Generate refresh token
-	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
+	plainToken, refreshToken, err := s.newRefreshToken(session.ID)
 	if err != nil {
 		return nil, errx.Internal("token generation failed", err.Error())
-	}
-
-	refreshToken := &authdto.RefreshToken{
-		SessionID: session.ID,
-		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 	}
 	if err := s.refreshTokenRepo.Create(ctx, refreshToken); err != nil {
 		return nil, errx.Internal("refresh token storage failed", err.Error())
 	}
 
-	// Generate access token
-	accessToken, err := s.tokenHelper.GenerateAccessToken(u.ID, u.Role, session.ID)
-	if err != nil {
-		return nil, errx.Internal("access token generation failed", err.Error())
-	}
-
-	return &authdto.TokenResponse{
-		AccessToken:  accessToken,
-		RefreshToken: plainToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
-	}, nil
+	return s.buildTokenResponse(u.ID, u.Role, session.ID, plainToken)
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*authdto.TokenResponse, error) {
@@ -265,15 +230,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 	// Reuse detection: token already revoked
 	if token.RevokedAt != nil {
 		if token.GraceUntil != nil && time.Now().Before(*token.GraceUntil) {
-			newPlain, newHash, err := s.tokenHelper.GenerateRefreshToken()
+			newPlain, newToken, err := s.newRefreshToken(session.ID)
 			if err != nil {
 				return nil, errx.Internal("token generation failed", err.Error())
-			}
-
-			newToken := &authdto.RefreshToken{
-				SessionID: session.ID,
-				TokenHash: newHash,
-				ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 			}
 			if err := s.refreshTokenRepo.Create(ctx, newToken); err != nil {
 				return nil, errx.Internal("refresh token storage failed", err.Error())
@@ -284,17 +243,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 				return nil, errx.Internal("user lookup failed", err.Error())
 			}
 
-			accessToken, err := s.tokenHelper.GenerateAccessToken(u.ID, u.Role, session.ID)
-			if err != nil {
-				return nil, errx.Internal("access token generation failed", err.Error())
-			}
-
-			return &authdto.TokenResponse{
-				AccessToken:  accessToken,
-				RefreshToken: newPlain,
-				TokenType:    "Bearer",
-				ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
-			}, nil
+			return s.buildTokenResponse(u.ID, u.Role, session.ID, newPlain)
 		}
 
 		// Outside grace period — reuse detected, revoke entire session
@@ -319,15 +268,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 		return nil, errx.Internal("token revocation failed", err.Error())
 	}
 
-	newPlain, newHash, err := s.tokenHelper.GenerateRefreshToken()
+	newPlain, newToken, err := s.newRefreshToken(session.ID)
 	if err != nil {
 		return nil, errx.Internal("token generation failed", err.Error())
-	}
-
-	newToken := &authdto.RefreshToken{
-		SessionID: session.ID,
-		TokenHash: newHash,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 	}
 	if err := s.refreshTokenRepo.CreateWithTx(ctx, tx, newToken); err != nil {
 		return nil, errx.Internal("refresh token creation failed", err.Error())
@@ -343,17 +286,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 		return nil, errx.Internal("user lookup failed", err.Error())
 	}
 
-	accessToken, err := s.tokenHelper.GenerateAccessToken(u.ID, u.Role, session.ID)
-	if err != nil {
-		return nil, errx.Internal("access token generation failed", err.Error())
-	}
-
-	return &authdto.TokenResponse{
-		AccessToken:  accessToken,
-		RefreshToken: newPlain,
-		TokenType:    "Bearer",
-		ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
-	}, nil
+	return s.buildTokenResponse(u.ID, u.Role, session.ID, newPlain)
 }
 
 func (s *AuthService) Logout(ctx context.Context, plainToken string) error {
@@ -516,17 +449,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return errx.BadRequest("reset token has expired")
 	}
 
-	hasLetter := false
-	hasDigit := false
-	for _, c := range newPassword {
-		if unicode.IsLetter(c) {
-			hasLetter = true
-		}
-		if unicode.IsDigit(c) {
-			hasDigit = true
-		}
-	}
-	if !hasLetter || !hasDigit {
+	if !passwordHasLetterAndDigit(newPassword) {
 		return errx.BadRequest("password must contain at least one letter and one digit")
 	}
 
@@ -597,5 +520,53 @@ func (s *AuthService) GetCurrentUser(ctx context.Context, userID string) (*authd
 		IsActive:        u.IsActive,
 		EmailVerifiedAt: u.EmailVerifiedAt,
 		CreatedAt:       u.CreatedAt,
+	}, nil
+}
+
+// passwordHasLetterAndDigit reports whether p contains at least one letter and
+// one digit — the supplementary password rule shared by Register and
+// ResetPassword.
+func passwordHasLetterAndDigit(p string) bool {
+	hasLetter := false
+	hasDigit := false
+	for _, c := range p {
+		if unicode.IsLetter(c) {
+			hasLetter = true
+		}
+		if unicode.IsDigit(c) {
+			hasDigit = true
+		}
+	}
+	return hasLetter && hasDigit
+}
+
+// newRefreshToken generates a refresh token for the session, returning the
+// plaintext (for the client) and the *authdto.RefreshToken to persist. It is
+// pure: the caller chooses the transactional or non-transactional persistence
+// path, keeping transaction boundaries explicit.
+func (s *AuthService) newRefreshToken(sessionID string) (string, *authdto.RefreshToken, error) {
+	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
+	if err != nil {
+		return "", nil, err
+	}
+	return plainToken, &authdto.RefreshToken{
+		SessionID: sessionID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
+	}, nil
+}
+
+// buildTokenResponse mints an access token and assembles the TokenResponse from
+// an already-persisted refresh token's plaintext.
+func (s *AuthService) buildTokenResponse(userID, role, sessionID, plainRefreshToken string) (*authdto.TokenResponse, error) {
+	accessToken, err := s.tokenHelper.GenerateAccessToken(userID, role, sessionID)
+	if err != nil {
+		return nil, errx.Internal("access token generation failed", err.Error())
+	}
+	return &authdto.TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: plainRefreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
 	}, nil
 }

@@ -395,6 +395,25 @@ func TestRegister_DisabledReturnsForbidden(t *testing.T) {
 	assert.Contains(t, err.(*errx.AppError).Message, "registration is currently disabled")
 }
 
+func TestPasswordHasLetterAndDigit(t *testing.T) {
+	cases := []struct {
+		name     string
+		password string
+		want     bool
+	}{
+		{"letter and digit", "Password123", true},
+		{"digits only", "12345678", false},
+		{"letters only", "allletters", false},
+		{"empty", "", false},
+		{"symbol with letter and digit", "a1!", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, passwordHasLetterAndDigit(tc.password))
+		})
+	}
+}
+
 func TestRegister_PasswordNoLetter(t *testing.T) {
 	svc := &AuthService{
 		cfg:         testAuthConfig(),
