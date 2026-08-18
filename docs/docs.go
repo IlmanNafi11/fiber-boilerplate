@@ -1214,6 +1214,9 @@ const docTemplate = `{
         "response.Response": {
             "type": "object",
             "properties": {
+                "code": {
+                    "type": "string"
+                },
                 "data": {},
                 "errors": {
                     "type": "array",
