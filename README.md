@@ -122,6 +122,98 @@ tests/             -- Integration test suite
 | GET | `/health` | Health check (pings database) |
 | GET | `/swagger/*` | Swagger UI (disableable) |
 
+## Response Envelope
+
+Every response shares one JSON envelope. Field presence is driven by `omitempty`, so
+success responses omit `code`/`errors`, error responses omit `data`/`meta`, and
+non-paginated responses omit `meta`.
+
+**Success**
+
+```json
+{ "success": true, "message": "OK", "data": { "id": "..." } }
+```
+
+**Paginated success** adds `meta`:
+
+```json
+{ "success": true, "message": "OK", "data": [ ... ], "meta": { "page": 1, "limit": 20, "total": 42 } }
+```
+
+**General error** — a stable machine `code` and human `message` at the top level, no `errors`:
+
+```json
+{ "success": false, "message": "user not found", "code": "NOT_FOUND" }
+```
+
+**Validation error** (HTTP 422) — top-level `code`/`message` plus a field-only `errors` array:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "errors": [
+    { "field": "email", "message": "invalid email format" },
+    { "field": "name", "message": "value is too short" }
+  ]
+}
+```
+
+`errors[]` carries **only** field-level validation items (`field`, `message`). It never
+duplicates the top-level `code`/`message`, and it is absent on non-validation errors.
+
+**Server error** (any 5xx) — the internal cause is logged server-side and masked in the
+response. Every 5xx collapses to the same opaque body; the HTTP status is preserved
+(a 503 stays 503):
+
+```json
+{ "success": false, "message": "Internal Server Error", "code": "INTERNAL_ERROR" }
+```
+
+### Error codes
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `BAD_REQUEST` | 400 | Malformed request |
+| `UNAUTHORIZED` | 401 | Missing/invalid credentials |
+| `FORBIDDEN` | 403 | Authenticated but not allowed |
+| `NOT_FOUND` | 404 | Resource does not exist |
+| `CONFLICT` | 409 | State conflict (e.g. duplicate) |
+| `VALIDATION_ERROR` | 422 | Field validation failed (`errors[]` present) |
+| `TOO_MANY_REQUESTS` | 429 | Rate limit exceeded |
+| `INTERNAL_ERROR` | 5xx | Masked internal failure |
+
+### Migrating from the legacy error shape
+
+Earlier revisions nested the machine code and message inside the first element of
+`errors[]`. General (non-validation) errors now carry them at the **top level**, and
+`errors[]` is reserved for field-level validation detail.
+
+**Before**
+
+```json
+{ "success": false, "errors": [ { "code": "NOT_FOUND", "message": "user not found" } ] }
+```
+
+**After**
+
+```json
+{ "success": false, "message": "user not found", "code": "NOT_FOUND" }
+```
+
+Consumer migration steps:
+
+1. Read the machine code from top-level `code` (was `errors[0].code`).
+2. Read the human message from top-level `message` (was `errors[0].message`).
+3. Treat `errors[]` as validation-only: iterate `errors[].field` / `errors[].message`,
+   and expect it to be **absent** on general and 5xx errors.
+4. For any 5xx, expect the opaque `INTERNAL_ERROR` / `Internal Server Error` body — do
+   not parse detail out of it.
+
+This is a **breaking change** to the error contract. If external consumers already
+depend on the legacy shape, ship it under a **major version bump** (see `CHANGELOG.md`).
+
 ## Configuration
 
 All configuration is loaded from environment variables. Copy `.env.example` to `.env` and adjust values.
