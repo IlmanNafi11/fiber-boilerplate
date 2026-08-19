@@ -571,4 +571,3 @@ func (s *AuthIntegrationSuite) TestForgotPassword_EnqueueFailure_RollsBack() {
 func TestAuthIntegrationSuite(t *testing.T) {
 	suite.Run(t, new(AuthIntegrationSuite))
 }
-
