@@ -54,8 +54,8 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret           string `validate:"required"`
-	JWTSecretPrevious   string
+	JWTSecret           string `validate:"required,min=32"`
+	JWTSecretPrevious   string `validate:"omitempty,min=32"`
 	JWTAccessTTL        time.Duration
 	JWTRefreshTTL       time.Duration
 	RefreshGracePeriod  time.Duration

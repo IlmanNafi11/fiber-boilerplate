@@ -9,10 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testJWTSecret satisfies the production `min=32` validation on JWT_SECRET.
+const testJWTSecret = "test-jwt-secret-0123456789abcdef" // 32 chars
+
 // setTestDBEnv sets all required DB env vars for testing.
 func setTestDBEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	t.Setenv("DB_HOST", "localhost")
 	t.Setenv("DB_USER", "testuser")
 	t.Setenv("DB_PASSWORD", "testpass")
@@ -110,7 +113,7 @@ func TestGetAllowedOrigins_CommaSeparated(t *testing.T) {
 
 func TestDatabaseConfig_RequiredFields(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	t.Setenv("DB_HOST", "db.example.com")
 	t.Setenv("DB_PORT", "5433")
 	t.Setenv("DB_USER", "admin")
@@ -133,7 +136,7 @@ func TestDatabaseConfig_RequiredFields(t *testing.T) {
 
 func TestDatabaseConfig_Defaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	// Set only required DB fields, leave optional ones unset
 	t.Setenv("DB_HOST", "localhost")
 	t.Setenv("DB_USER", "user")
@@ -492,6 +495,52 @@ func TestLoad_ProductionRejectsSwaggerEnabled(t *testing.T) {
 	assert.Nil(t, cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SWAGGER_ENABLED")
+}
+
+func TestLoad_RejectsShortJWTSecret(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	t.Setenv("JWT_SECRET", "too-short") // 9 chars, below the 32-char minimum
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWTSecret")
+}
+
+func TestLoad_RejectsMissingJWTSecret(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	require.NoError(t, os.Unsetenv("JWT_SECRET"))
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWTSecret")
+}
+
+func TestLoad_RejectsShortJWTSecretPrevious(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	t.Setenv("JWT_SECRET_PREVIOUS", "too-short") // below the 32-char minimum
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWTSecretPrevious")
+}
+
+func TestLoad_AcceptsValidJWTSecretPrevious(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	// A 32-char rotation secret distinct from the primary is accepted, and an
+	// empty JWT_SECRET_PREVIOUS (the common no-rotation case) stays valid via omitempty.
+	t.Setenv("JWT_SECRET_PREVIOUS", "prev-jwt-secret-0123456789abcdef")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, "prev-jwt-secret-0123456789abcdef", cfg.Auth.JWTSecretPrevious)
 }
 
 func TestLoad_DevelopmentAllowsWildcardAndSwagger(t *testing.T) {
