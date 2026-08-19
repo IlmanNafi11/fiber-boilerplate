@@ -32,6 +32,9 @@ func unsetTestDBEnv(t *testing.T) {
 		"RATE_LIMIT_GLOBAL_MAX", "RATE_LIMIT_GLOBAL_WINDOW",
 		"EMAIL_VERIFICATION_ENABLED", "EMAIL_VERIFICATION_TOKEN_TTL",
 		"PASSWORD_RESET_TOKEN_TTL",
+		"EMAIL_OUTBOX_DISPATCH_INTERVAL", "EMAIL_OUTBOX_BATCH_SIZE", "EMAIL_OUTBOX_LEASE",
+		"EMAIL_OUTBOX_SEND_TIMEOUT", "EMAIL_OUTBOX_MAX_ATTEMPTS",
+		"EMAIL_OUTBOX_BASE_BACKOFF", "EMAIL_OUTBOX_MAX_BACKOFF",
 		"SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
 		"ADMIN_EMAIL", "ADMIN_PASSWORD", "DEMO_EMAIL", "DEMO_PASSWORD",
 		"SWAGGER_ENABLED",
@@ -265,6 +268,13 @@ func TestLoad_EmailConfigDefaults(t *testing.T) {
 	assert.True(t, cfg.Email.VerificationEnabled, "default VerificationEnabled should be true")
 	assert.Equal(t, 24*time.Hour, cfg.Email.VerificationTokenTTL, "default VerificationTokenTTL should be 24h")
 	assert.Equal(t, 15*time.Minute, cfg.Email.PasswordResetTokenTTL, "default PasswordResetTokenTTL should be 15m")
+	assert.Equal(t, 5*time.Second, cfg.Email.OutboxDispatchInterval, "default OutboxDispatchInterval should be 5s")
+	assert.Equal(t, 20, cfg.Email.OutboxBatchSize, "default OutboxBatchSize should be 20")
+	assert.Equal(t, 2*time.Minute, cfg.Email.OutboxLease, "default OutboxLease should be 2m")
+	assert.Equal(t, 10*time.Second, cfg.Email.OutboxSendTimeout, "default OutboxSendTimeout should be 10s")
+	assert.Equal(t, 5, cfg.Email.OutboxMaxAttempts, "default OutboxMaxAttempts should be 5")
+	assert.Equal(t, 10*time.Second, cfg.Email.OutboxBaseBackoff, "default OutboxBaseBackoff should be 10s")
+	assert.Equal(t, time.Hour, cfg.Email.OutboxMaxBackoff, "default OutboxMaxBackoff should be 1h")
 }
 
 func TestLoad_EmailConfigCustom(t *testing.T) {
@@ -273,6 +283,13 @@ func TestLoad_EmailConfigCustom(t *testing.T) {
 	t.Setenv("EMAIL_VERIFICATION_ENABLED", "false")
 	t.Setenv("EMAIL_VERIFICATION_TOKEN_TTL", "48h")
 	t.Setenv("PASSWORD_RESET_TOKEN_TTL", "30m")
+	t.Setenv("EMAIL_OUTBOX_DISPATCH_INTERVAL", "2s")
+	t.Setenv("EMAIL_OUTBOX_BATCH_SIZE", "50")
+	t.Setenv("EMAIL_OUTBOX_LEASE", "5m")
+	t.Setenv("EMAIL_OUTBOX_SEND_TIMEOUT", "30s")
+	t.Setenv("EMAIL_OUTBOX_MAX_ATTEMPTS", "8")
+	t.Setenv("EMAIL_OUTBOX_BASE_BACKOFF", "20s")
+	t.Setenv("EMAIL_OUTBOX_MAX_BACKOFF", "2h")
 	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
@@ -282,6 +299,13 @@ func TestLoad_EmailConfigCustom(t *testing.T) {
 	assert.False(t, cfg.Email.VerificationEnabled, "VerificationEnabled should be false when env is false")
 	assert.Equal(t, 48*time.Hour, cfg.Email.VerificationTokenTTL, "VerificationTokenTTL should be 48h")
 	assert.Equal(t, 30*time.Minute, cfg.Email.PasswordResetTokenTTL, "PasswordResetTokenTTL should be 30m")
+	assert.Equal(t, 2*time.Second, cfg.Email.OutboxDispatchInterval)
+	assert.Equal(t, 50, cfg.Email.OutboxBatchSize)
+	assert.Equal(t, 5*time.Minute, cfg.Email.OutboxLease)
+	assert.Equal(t, 30*time.Second, cfg.Email.OutboxSendTimeout)
+	assert.Equal(t, 8, cfg.Email.OutboxMaxAttempts)
+	assert.Equal(t, 20*time.Second, cfg.Email.OutboxBaseBackoff)
+	assert.Equal(t, 2*time.Hour, cfg.Email.OutboxMaxBackoff)
 }
 
 func TestLoad_SMTPConfigDefaults(t *testing.T) {

@@ -66,6 +66,15 @@ type EmailConfig struct {
 	VerificationEnabled   bool
 	VerificationTokenTTL  time.Duration
 	PasswordResetTokenTTL time.Duration
+
+	// Outbox dispatcher tunables (Task 6).
+	OutboxDispatchInterval time.Duration
+	OutboxBatchSize        int
+	OutboxLease            time.Duration
+	OutboxSendTimeout      time.Duration
+	OutboxMaxAttempts      int
+	OutboxBaseBackoff      time.Duration
+	OutboxMaxBackoff       time.Duration
 }
 
 type SMTPConfig struct {
@@ -131,6 +140,14 @@ func Load() (*Config, error) {
 			VerificationEnabled:   getEnvBoolWithDefault("EMAIL_VERIFICATION_ENABLED", true),
 			VerificationTokenTTL:  getEnvDurationWithDefault("EMAIL_VERIFICATION_TOKEN_TTL", 24*time.Hour),
 			PasswordResetTokenTTL: getEnvDurationWithDefault("PASSWORD_RESET_TOKEN_TTL", 15*time.Minute),
+
+			OutboxDispatchInterval: getEnvDurationWithDefault("EMAIL_OUTBOX_DISPATCH_INTERVAL", 5*time.Second),
+			OutboxBatchSize:        getEnvIntWithDefault("EMAIL_OUTBOX_BATCH_SIZE", 20),
+			OutboxLease:            getEnvDurationWithDefault("EMAIL_OUTBOX_LEASE", 2*time.Minute),
+			OutboxSendTimeout:      getEnvDurationWithDefault("EMAIL_OUTBOX_SEND_TIMEOUT", 10*time.Second),
+			OutboxMaxAttempts:      getEnvIntWithDefault("EMAIL_OUTBOX_MAX_ATTEMPTS", 5),
+			OutboxBaseBackoff:      getEnvDurationWithDefault("EMAIL_OUTBOX_BASE_BACKOFF", 10*time.Second),
+			OutboxMaxBackoff:       getEnvDurationWithDefault("EMAIL_OUTBOX_MAX_BACKOFF", time.Hour),
 		},
 		SMTP: SMTPConfig{
 			Host:     os.Getenv("SMTP_HOST"),

@@ -9,6 +9,8 @@ import (
 	_ "github.com/ilmannafi/fiber-boilerplate/docs"
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	http "github.com/ilmannafi/fiber-boilerplate/internal/delivery/http"
+	outboxrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/emailoutbox"
+	emailservice "github.com/ilmannafi/fiber-boilerplate/internal/service/email"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/database"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/logger"
 	"go.uber.org/zap"
@@ -56,6 +58,16 @@ func main() {
 	// 4. Create Fiber server with middleware chain and auth routes
 	app := http.NewServer(cfg, appLogger, pool)
 
+	// 4b. Start the durable email dispatcher (drains the outbox; at-least-once).
+	outboxRepo := outboxrepo.NewRepository(pool)
+	emailSender := emailservice.NewSMTPEmailSender(cfg.SMTP, appLogger)
+	dispatcher := emailservice.NewFromConfig(outboxRepo, emailSender, cfg.Email, appLogger)
+	dispatcherDone := make(chan struct{})
+	go func() {
+		dispatcher.Run(ctx)
+		close(dispatcherDone)
+	}()
+
 	// 5. Start server in goroutine
 	go func() {
 		appLogger.Info("starting server",
@@ -75,6 +87,9 @@ func main() {
 	if err := app.Shutdown(); err != nil {
 		appLogger.Error("server shutdown error", zap.Error(err))
 	}
+
+	// Stop the dispatcher before closing the pool so no send races a closed DB.
+	<-dispatcherDone
 
 	appLogger.Info("shutdown complete")
 }
