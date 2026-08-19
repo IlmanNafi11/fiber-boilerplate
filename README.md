@@ -120,6 +120,7 @@ tests/             -- Integration test suite
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check (pings database) |
+| GET | `/metrics` | Prometheus metrics (HTTP RED + email outbox; restrict at network layer) |
 | GET | `/swagger/*` | Swagger UI (disableable) |
 
 ## Response Envelope
@@ -302,6 +303,13 @@ make migrate-version             # Show current version
 make migrate-force V=1           # Force version (dirty state recovery)
 make migrate-create name=add_x   # Create new migration pair
 ```
+
+## Operations
+
+Production deploy, monitoring, and rollback procedures live in the operations
+runbook: [`docs/operations/runbook.md`](docs/operations/runbook.md). It covers
+required environment, immutable-tag deploys, migration order, health/critical-flow
+smoke checks, Prometheus metrics and alerts, and the measured rollback procedure.
 
 ## Removing the Products Template
 

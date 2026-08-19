@@ -1,5 +1,9 @@
 services:
   app:
+    # Deploys and rollbacks pin an immutable tag via APP_IMAGE (e.g.
+    # registry.example.com/fiber-boilerplate:1.4.2). When APP_IMAGE is unset the
+    # image is built from source for local use. See docs/operations/runbook.md.
+    image: ${APP_IMAGE:-fiber-boilerplate:local}
     build: .
     ports:
       - "${APP_PORT:-3000}:3000"
