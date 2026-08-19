@@ -70,11 +70,22 @@ jobs:
           swag init -g cmd/server/main.go -o ./docs --parseInternal --outputTypes go,json,yaml
           git diff --exit-code docs/
 
+  vulncheck:
+    name: vulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - run: make vulncheck
+
   build:
     name: build
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [lint, fmt-check, test-unit, test-integration, swagger-check]
+    needs: [lint, fmt-check, test-unit, test-integration, swagger-check, vulncheck]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5

@@ -22,7 +22,9 @@ import (
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/middleware"
 	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
+	emaildomain "github.com/ilmannafi/fiber-boilerplate/internal/domain/email"
 	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
+	outboxrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/emailoutbox"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
@@ -103,6 +105,7 @@ func (s *AuthHandlerIntegrationSuite) setupApp(cfg config.AuthConfig) {
 	authSvc := authservice.NewAuthService(
 		uRepo, sessRepo, rtRepo,
 		evTokenRepo, resetTokenRepo,
+		outboxrepo.NewRepository(s.pool),
 		tokenHelper, emailSender,
 		cfg, emailCfg,
 		zap.NewNop(), s.pool,
@@ -154,6 +157,21 @@ func (s *AuthHandlerIntegrationSuite) decodeResponse(body io.Reader) response.Re
 	return result
 }
 
+// outboxToken returns the newest enqueued token for a recipient/event type.
+func (s *AuthHandlerIntegrationSuite) outboxToken(eventType, recipient string) string {
+	var payload []byte
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT payload FROM email_outbox
+		 WHERE event_type = $1 AND recipient = $2
+		 ORDER BY created_at DESC LIMIT 1`,
+		eventType, recipient,
+	).Scan(&payload)
+	require.NoError(s.T(), err, "expected a %s outbox event for %s", eventType, recipient)
+	var p emaildomain.TokenPayload
+	require.NoError(s.T(), json.Unmarshal(payload, &p))
+	return p.Token
+}
+
 // Helper: register, verify, login — returns access and refresh tokens
 func (s *AuthHandlerIntegrationSuite) registerVerifyLogin(email, password string) (string, string) {
 	// Register
@@ -164,10 +182,8 @@ func (s *AuthHandlerIntegrationSuite) registerVerifyLogin(email, password string
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 201, resp.StatusCode)
 
-	// Extract verification token
-	time.Sleep(50 * time.Millisecond)
-	require.NotEmpty(s.T(), s.emailSender.verificationEmails)
-	token := s.emailSender.verificationEmails[0].Token
+	// Verification token is enqueued transactionally to the outbox.
+	token := s.outboxToken(emaildomain.EventTypeVerification, email)
 
 	// Verify email
 	verifyBody, _ := json.Marshal(map[string]string{"token": token})

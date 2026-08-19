@@ -9,10 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testJWTSecret satisfies the production `min=32` validation on JWT_SECRET.
+const testJWTSecret = "test-jwt-secret-0123456789abcdef" // 32 chars
+
 // setTestDBEnv sets all required DB env vars for testing.
 func setTestDBEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	t.Setenv("DB_HOST", "localhost")
 	t.Setenv("DB_USER", "testuser")
 	t.Setenv("DB_PASSWORD", "testpass")
@@ -32,6 +35,9 @@ func unsetTestDBEnv(t *testing.T) {
 		"RATE_LIMIT_GLOBAL_MAX", "RATE_LIMIT_GLOBAL_WINDOW",
 		"EMAIL_VERIFICATION_ENABLED", "EMAIL_VERIFICATION_TOKEN_TTL",
 		"PASSWORD_RESET_TOKEN_TTL",
+		"EMAIL_OUTBOX_DISPATCH_INTERVAL", "EMAIL_OUTBOX_BATCH_SIZE", "EMAIL_OUTBOX_LEASE",
+		"EMAIL_OUTBOX_SEND_TIMEOUT", "EMAIL_OUTBOX_MAX_ATTEMPTS",
+		"EMAIL_OUTBOX_BASE_BACKOFF", "EMAIL_OUTBOX_MAX_BACKOFF",
 		"SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
 		"ADMIN_EMAIL", "ADMIN_PASSWORD", "DEMO_EMAIL", "DEMO_PASSWORD",
 		"SWAGGER_ENABLED",
@@ -81,6 +87,7 @@ func TestLoad_ValidProduction(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("APP_NAME", "test-app")
 	t.Setenv("APP_PORT", "8080")
+	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com")
 	setTestDBEnv(t)
 	defer unsetTestDBEnv(t)
 
@@ -106,7 +113,7 @@ func TestGetAllowedOrigins_CommaSeparated(t *testing.T) {
 
 func TestDatabaseConfig_RequiredFields(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	t.Setenv("DB_HOST", "db.example.com")
 	t.Setenv("DB_PORT", "5433")
 	t.Setenv("DB_USER", "admin")
@@ -129,7 +136,7 @@ func TestDatabaseConfig_RequiredFields(t *testing.T) {
 
 func TestDatabaseConfig_Defaults(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
-	t.Setenv("JWT_SECRET", "test-jwt-secret-key")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	// Set only required DB fields, leave optional ones unset
 	t.Setenv("DB_HOST", "localhost")
 	t.Setenv("DB_USER", "user")
@@ -264,6 +271,13 @@ func TestLoad_EmailConfigDefaults(t *testing.T) {
 	assert.True(t, cfg.Email.VerificationEnabled, "default VerificationEnabled should be true")
 	assert.Equal(t, 24*time.Hour, cfg.Email.VerificationTokenTTL, "default VerificationTokenTTL should be 24h")
 	assert.Equal(t, 15*time.Minute, cfg.Email.PasswordResetTokenTTL, "default PasswordResetTokenTTL should be 15m")
+	assert.Equal(t, 5*time.Second, cfg.Email.OutboxDispatchInterval, "default OutboxDispatchInterval should be 5s")
+	assert.Equal(t, 20, cfg.Email.OutboxBatchSize, "default OutboxBatchSize should be 20")
+	assert.Equal(t, 2*time.Minute, cfg.Email.OutboxLease, "default OutboxLease should be 2m")
+	assert.Equal(t, 10*time.Second, cfg.Email.OutboxSendTimeout, "default OutboxSendTimeout should be 10s")
+	assert.Equal(t, 5, cfg.Email.OutboxMaxAttempts, "default OutboxMaxAttempts should be 5")
+	assert.Equal(t, 10*time.Second, cfg.Email.OutboxBaseBackoff, "default OutboxBaseBackoff should be 10s")
+	assert.Equal(t, time.Hour, cfg.Email.OutboxMaxBackoff, "default OutboxMaxBackoff should be 1h")
 }
 
 func TestLoad_EmailConfigCustom(t *testing.T) {
@@ -272,6 +286,13 @@ func TestLoad_EmailConfigCustom(t *testing.T) {
 	t.Setenv("EMAIL_VERIFICATION_ENABLED", "false")
 	t.Setenv("EMAIL_VERIFICATION_TOKEN_TTL", "48h")
 	t.Setenv("PASSWORD_RESET_TOKEN_TTL", "30m")
+	t.Setenv("EMAIL_OUTBOX_DISPATCH_INTERVAL", "2s")
+	t.Setenv("EMAIL_OUTBOX_BATCH_SIZE", "50")
+	t.Setenv("EMAIL_OUTBOX_LEASE", "5m")
+	t.Setenv("EMAIL_OUTBOX_SEND_TIMEOUT", "30s")
+	t.Setenv("EMAIL_OUTBOX_MAX_ATTEMPTS", "8")
+	t.Setenv("EMAIL_OUTBOX_BASE_BACKOFF", "20s")
+	t.Setenv("EMAIL_OUTBOX_MAX_BACKOFF", "2h")
 	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
@@ -281,6 +302,13 @@ func TestLoad_EmailConfigCustom(t *testing.T) {
 	assert.False(t, cfg.Email.VerificationEnabled, "VerificationEnabled should be false when env is false")
 	assert.Equal(t, 48*time.Hour, cfg.Email.VerificationTokenTTL, "VerificationTokenTTL should be 48h")
 	assert.Equal(t, 30*time.Minute, cfg.Email.PasswordResetTokenTTL, "PasswordResetTokenTTL should be 30m")
+	assert.Equal(t, 2*time.Second, cfg.Email.OutboxDispatchInterval)
+	assert.Equal(t, 50, cfg.Email.OutboxBatchSize)
+	assert.Equal(t, 5*time.Minute, cfg.Email.OutboxLease)
+	assert.Equal(t, 30*time.Second, cfg.Email.OutboxSendTimeout)
+	assert.Equal(t, 8, cfg.Email.OutboxMaxAttempts)
+	assert.Equal(t, 20*time.Second, cfg.Email.OutboxBaseBackoff)
+	assert.Equal(t, 2*time.Hour, cfg.Email.OutboxMaxBackoff)
 }
 
 func TestLoad_SMTPConfigDefaults(t *testing.T) {
@@ -366,32 +394,165 @@ func TestLoad_SeederConfigCustom(t *testing.T) {
 	assert.Equal(t, "demo123", cfg.Seeder.DemoPassword)
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func TestSwaggerEnabled_DefaultDevelopment(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	s := &ServerConfig{Env: "development"}
 	assert.True(t, s.SwaggerEnabled(), "SwaggerEnabled should be true in development by default")
 }
 
 func TestSwaggerEnabled_DefaultProduction(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	s := &ServerConfig{Env: "production"}
 	assert.False(t, s.SwaggerEnabled(), "SwaggerEnabled should be false in production by default (T-09-01)")
 }
 
 func TestSwaggerEnabled_ExplicitTrue(t *testing.T) {
-	t.Setenv("SWAGGER_ENABLED", "true")
-	s := &ServerConfig{Env: "production"}
-	assert.True(t, s.SwaggerEnabled(), "SWAGGER_ENABLED=true should override production default")
+	s := &ServerConfig{Env: "production", Swagger: boolPtr(true)}
+	assert.True(t, s.SwaggerEnabled(), "explicit Swagger=true should override production default")
 }
 
 func TestSwaggerEnabled_ExplicitFalse(t *testing.T) {
-	t.Setenv("SWAGGER_ENABLED", "false")
-	s := &ServerConfig{Env: "development"}
-	assert.False(t, s.SwaggerEnabled(), "SWAGGER_ENABLED=false should override development default")
+	s := &ServerConfig{Env: "development", Swagger: boolPtr(false)}
+	assert.False(t, s.SwaggerEnabled(), "explicit Swagger=false should override development default")
 }
 
-func TestSwaggerEnabled_InvalidValue(t *testing.T) {
+func TestLoad_SwaggerInvalidValueFailsClosed(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv(t)
 	t.Setenv("SWAGGER_ENABLED", "maybe")
-	s := &ServerConfig{Env: "development"}
-	assert.False(t, s.SwaggerEnabled(), "invalid SWAGGER_ENABLED value should default to false")
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SWAGGER_ENABLED")
+}
+
+func TestLoad_SwaggerUnsetLeavesNil(t *testing.T) {
+	t.Setenv("APP_NAME", "test-app")
+	setTestDBEnv(t)
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Nil(t, cfg.Server.Swagger, "unset SWAGGER_ENABLED should leave Swagger nil for Env-based derive")
+}
+
+// setProdEnv configures a minimally valid production environment: required
+// fields set, explicit non-wildcard origins, Swagger unset (defaults off in prod).
+func setProdEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("APP_NAME", "test-app")
+	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com")
+	setTestDBEnv(t)
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
+}
+
+func TestLoad_ProductionValidBaseline(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, []string{"https://app.example.com"}, cfg.Server.GetAllowedOrigins())
+	assert.False(t, cfg.Server.SwaggerEnabled())
+}
+
+func TestLoad_ProductionRejectsUnsafeOrigins(t *testing.T) {
+	cases := []struct {
+		name    string
+		origins string
+	}{
+		{"empty", ""},
+		{"whitespace only", "   "},
+		{"bare wildcard", "*"},
+		{"wildcard among others", "https://app.example.com,*"},
+		{"wildcard with spaces", " * "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setProdEnv(t)
+			defer unsetTestDBEnv(t)
+			t.Setenv("ALLOWED_ORIGINS", tc.origins)
+
+			cfg, err := Load()
+			assert.Nil(t, cfg)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ALLOWED_ORIGINS")
+		})
+	}
+}
+
+func TestLoad_ProductionRejectsSwaggerEnabled(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	t.Setenv("SWAGGER_ENABLED", "true")
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SWAGGER_ENABLED")
+}
+
+func TestLoad_RejectsShortJWTSecret(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	t.Setenv("JWT_SECRET", "too-short") // 9 chars, below the 32-char minimum
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWTSecret")
+}
+
+func TestLoad_RejectsMissingJWTSecret(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	require.NoError(t, os.Unsetenv("JWT_SECRET"))
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWTSecret")
+}
+
+func TestLoad_RejectsShortJWTSecretPrevious(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	t.Setenv("JWT_SECRET_PREVIOUS", "too-short") // below the 32-char minimum
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWTSecretPrevious")
+}
+
+func TestLoad_AcceptsValidJWTSecretPrevious(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	// A 32-char rotation secret distinct from the primary is accepted, and an
+	// empty JWT_SECRET_PREVIOUS (the common no-rotation case) stays valid via omitempty.
+	t.Setenv("JWT_SECRET_PREVIOUS", "prev-jwt-secret-0123456789abcdef")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, "prev-jwt-secret-0123456789abcdef", cfg.Auth.JWTSecretPrevious)
+}
+
+func TestLoad_DevelopmentAllowsWildcardAndSwagger(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("APP_NAME", "test-app")
+	t.Setenv("ALLOWED_ORIGINS", "*")
+	t.Setenv("SWAGGER_ENABLED", "true")
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.True(t, cfg.Server.SwaggerEnabled())
 }

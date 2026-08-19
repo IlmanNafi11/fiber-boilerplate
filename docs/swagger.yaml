@@ -190,6 +190,8 @@ definitions:
     type: object
   response.Response:
     properties:
+      code:
+        type: string
       data: {}
       errors:
         items:

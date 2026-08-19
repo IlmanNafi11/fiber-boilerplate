@@ -15,6 +15,7 @@ func TruncateAllTables(t testing.TB, pool *pgxpool.Pool) {
 
 	_, err := pool.Exec(context.Background(), `
 		TRUNCATE TABLE
+			email_outbox,
 			refresh_tokens,
 			sessions,
 			email_verification_tokens,

@@ -2,9 +2,9 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -48,6 +48,26 @@ func TestRecover(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.False(t, result.Success)
 	assert.Equal(t, "Internal Server Error", result.Message)
+}
+
+func TestPanicRoute_RegisteredOutsideProduction(t *testing.T) {
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
+	req := httptest.NewRequest("GET", "/panic", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	// Route exists; recover middleware turns the panic into a 500.
+	assert.Equal(t, 500, resp.StatusCode)
+}
+
+func TestPanicRoute_NotRegisteredInProduction(t *testing.T) {
+	cfg := testConfig("*")
+	cfg.Server.Env = "production"
+	app := NewServer(cfg, zap.NewNop(), nil)
+	req := httptest.NewRequest("GET", "/panic", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	// Route is not registered in production, so Fiber returns 404.
+	assert.Equal(t, 404, resp.StatusCode)
 }
 
 func TestRequestID(t *testing.T) {
@@ -95,9 +115,9 @@ func TestErrorHandler_AppError(t *testing.T) {
 	var result response.Response
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.False(t, result.Success)
+	assert.Equal(t, "BAD_REQUEST", result.Code)
 	assert.Equal(t, "invalid input", result.Message)
-	require.Len(t, result.Errors, 1)
-	assert.Equal(t, "invalid input", result.Errors[0].Message)
+	assert.Nil(t, result.Errors)
 }
 
 func TestErrorHandler_ValidationErrors(t *testing.T) {
@@ -132,6 +152,102 @@ func TestErrorHandler_ValidationErrors(t *testing.T) {
 	assert.True(t, len(result.Errors) >= 2, "should have at least 2 validation errors")
 }
 
+// TestErrorHandler_ValidationErrors_ExactFieldMessage exercises the production
+// validation path (Fiber StructValidator with JSON-tag name resolution) and
+// asserts the exact field names and messages the API contract promises, plus the
+// absence of any top-level code/message duplication inside errors[].
+func TestErrorHandler_ValidationErrors_ExactFieldMessage(t *testing.T) {
+	app := NewServer(testConfig("*"), zap.NewNop(), nil)
+
+	type registerInput struct {
+		Email string `json:"email" validate:"required,email"`
+		Name  string `json:"name" validate:"required,min=2"`
+	}
+
+	app.Post("/test", func(c fiber.Ctx) error {
+		in := new(registerInput)
+		if err := c.Bind().JSON(in); err != nil {
+			return err
+		}
+		return c.SendString("ok")
+	})
+
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"email":"not-an-email","name":"a"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 422, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var result response.Response
+	require.NoError(t, json.Unmarshal(body, &result))
+	assert.False(t, result.Success)
+	assert.Equal(t, "VALIDATION_ERROR", result.Code)
+	assert.Equal(t, "Validation failed", result.Message)
+
+	// Field errors carry the JSON field name and the exact human-readable message.
+	msgByField := make(map[string]string, len(result.Errors))
+	for _, item := range result.Errors {
+		msgByField[item.Field] = item.Message
+	}
+	assert.Equal(t, "invalid email format", msgByField["email"])
+	assert.Equal(t, "value is too short", msgByField["name"])
+
+	// errors[] must NOT duplicate the top-level machine code/message. A migrating
+	// consumer reads code/message from the top level; errors[] is field-only.
+	for _, item := range result.Errors {
+		assert.NotEqual(t, "VALIDATION_ERROR", item.Field)
+		assert.NotEqual(t, "VALIDATION_ERROR", item.Message)
+		assert.NotEqual(t, "Validation failed", item.Message)
+	}
+}
+
+// TestErrorHandler_AllServerErrorsMasked asserts every 5xx source masks its body
+// to the same opaque envelope — code INTERNAL_ERROR, message "Internal Server
+// Error", no errors[], no leaked internal detail — while preserving the source
+// HTTP status (a fiber 503 stays 503; only the code/message are masked).
+func TestErrorHandler_AllServerErrorsMasked(t *testing.T) {
+	secret := "sensitive-internal-detail-xyz"
+
+	cases := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"errx internal", errx.Internal("db query failed", secret), 500},
+		{"fiber 500", fiber.NewError(500, secret), 500},
+		{"fiber 503", fiber.NewError(503, secret), 503},
+		{"unknown error", errors.New(secret), 500},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := NewServer(testConfig("*"), zap.NewNop(), nil)
+			app.Get("/test", func(c fiber.Ctx) error {
+				return tc.err
+			})
+
+			req := httptest.NewRequest("GET", "/test", nil)
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.status, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.NotContains(t, string(body), secret, "internal detail must never reach the client")
+
+			var result response.Response
+			require.NoError(t, json.Unmarshal(body, &result))
+			assert.False(t, result.Success)
+			assert.Equal(t, "INTERNAL_ERROR", result.Code)
+			assert.Equal(t, "Internal Server Error", result.Message)
+			assert.Nil(t, result.Errors)
+		})
+	}
+}
+
 func TestSuccessHelper_OK(t *testing.T) {
 	app := NewServer(testConfig("*"), zap.NewNop(), nil)
 	app.Get("/test", func(c fiber.Ctx) error {
@@ -154,7 +270,6 @@ func TestSuccessHelper_OK(t *testing.T) {
 }
 
 func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Env:            "production",
@@ -172,7 +287,6 @@ func TestSwaggerRoute_DisabledInProduction(t *testing.T) {
 }
 
 func TestSwaggerRoute_EnabledInDevelopment(t *testing.T) {
-	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Env:            "development",
