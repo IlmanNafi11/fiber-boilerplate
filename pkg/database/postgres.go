@@ -23,7 +23,7 @@ func NewPool(ctx context.Context, cfg config.DatabaseConfig, logger *zap.Logger)
 	if cfg.MinConns < 0 || cfg.MinConns > math.MaxInt32 {
 		return nil, fmt.Errorf("DB_MIN_CONNS value %d out of valid range (0-%d)", cfg.MinConns, math.MaxInt32)
 	}
-	poolCfg.MaxConns = int32(cfg.MaxConns)
+	poolCfg.MaxConns = int32(cfg.MaxConns) //nolint:gosec // G115: range-checked 0..math.MaxInt32 on the lines above
 	poolCfg.MinConns = int32(cfg.MinConns)
 
 	if cfg.MaxConnIdleTime != "" {

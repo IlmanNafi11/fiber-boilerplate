@@ -46,9 +46,10 @@ func TestErrorHandler_AppError(t *testing.T) {
 	var result Response
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.False(t, result.Success)
+	assert.Equal(t, "NOT_FOUND", result.Code)
 	assert.Equal(t, "user not found", result.Message)
-	require.Len(t, result.Errors, 1)
-	assert.Equal(t, "user not found", result.Errors[0].Message)
+	// General errors carry code+message only — no duplicated errors[].
+	assert.Nil(t, result.Errors)
 }
 
 func TestErrorHandler_AppErrorWithDetail(t *testing.T) {
@@ -96,6 +97,7 @@ func TestErrorHandler_ValidationErrors(t *testing.T) {
 	var result Response
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.False(t, result.Success)
+	assert.Equal(t, "VALIDATION_ERROR", result.Code)
 	assert.Equal(t, "Validation failed", result.Message)
 	assert.True(t, len(result.Errors) >= 2, "should have at least 2 validation errors")
 }
@@ -117,7 +119,10 @@ func TestErrorHandler_FiberError(t *testing.T) {
 	var result Response
 	require.NoError(t, json.Unmarshal(body, &result))
 	assert.False(t, result.Success)
+	assert.Equal(t, "BAD_REQUEST", result.Code)
 	assert.Equal(t, "bad input", result.Message)
+	// Client fiber errors carry no field errors[].
+	assert.Nil(t, result.Errors)
 }
 
 func TestErrorHandler_FiberError5xx(t *testing.T) {

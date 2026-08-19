@@ -4,9 +4,12 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +18,9 @@ import (
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	aservice "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
+	emaildomain "github.com/ilmannafi/fiber-boilerplate/internal/domain/email"
 	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
+	outboxrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/emailoutbox"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/ilmannafi/fiber-boilerplate/testhelpers"
@@ -56,9 +61,12 @@ func (s *AuthIntegrationSuite) setupService(cfg config.AuthConfig, emailCfg conf
 
 	tokenHelper := NewTokenHelper(cfg)
 
+	outboxRepo := outboxrepo.NewRepository(s.pool)
+
 	svc := NewAuthService(
 		uRepo, sessRepo, rtRepo,
 		evTokenRepo, resetTokenRepo,
+		outboxRepo,
 		tokenHelper, emailSender,
 		cfg, emailCfg,
 		zap.NewNop(), s.pool,
@@ -80,8 +88,9 @@ func (s *AuthIntegrationSuite) TearDownSuite() {
 
 func (s *AuthIntegrationSuite) SetupTest() {
 	testhelpers.TruncateAllTables(s.T(), s.pool)
-	s.emailSender = &CaptureEmailSender{}
-	s.svc.emailSender = s.emailSender
+	// Rebuild the default service so tests that swap in a custom config
+	// (e.g. registration disabled) do not leak into subsequent tests.
+	s.setupService(testAuthConfig(), testEmailConfig(true))
 }
 
 // --- Helper ---
@@ -95,13 +104,50 @@ func (s *AuthIntegrationSuite) registerAndVerify(email, password string) {
 	})
 	require.NoError(s.T(), err)
 
-	// Wait for email and extract token
-	time.Sleep(50 * time.Millisecond)
-	emails := s.emailSender.GetVerificationEmails()
-	require.NotEmpty(s.T(), emails, "expected verification email to be sent")
-
-	err = s.svc.VerifyEmail(ctx, emails[0].Token)
+	token := s.outboxToken(emaildomain.EventTypeVerification, email)
+	err = s.svc.VerifyEmail(ctx, token)
 	require.NoError(s.T(), err)
+}
+
+// outboxTokenPayloads returns the decoded token payloads of pending outbox
+// events of the given type for a recipient, newest first.
+func (s *AuthIntegrationSuite) outboxTokens(eventType, recipient string) []string {
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT payload FROM email_outbox
+		 WHERE event_type = $1 AND recipient = $2
+		 ORDER BY created_at DESC`,
+		eventType, recipient,
+	)
+	require.NoError(s.T(), err)
+	defer rows.Close()
+
+	var tokens []string
+	for rows.Next() {
+		var payload []byte
+		require.NoError(s.T(), rows.Scan(&payload))
+		var p emaildomain.TokenPayload
+		require.NoError(s.T(), json.Unmarshal(payload, &p))
+		tokens = append(tokens, p.Token)
+	}
+	require.NoError(s.T(), rows.Err())
+	return tokens
+}
+
+// outboxToken returns the single expected token for a recipient/event type.
+func (s *AuthIntegrationSuite) outboxToken(eventType, recipient string) string {
+	tokens := s.outboxTokens(eventType, recipient)
+	require.NotEmpty(s.T(), tokens, "expected a %s outbox event for %s", eventType, recipient)
+	return tokens[0]
+}
+
+// outboxCount returns the number of outbox events of a type for a recipient.
+func (s *AuthIntegrationSuite) outboxCount(eventType, recipient string) int {
+	var n int
+	require.NoError(s.T(), s.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM email_outbox WHERE event_type = $1 AND recipient = $2`,
+		eventType, recipient,
+	).Scan(&n))
+	return n
 }
 
 // --- Tests ---
@@ -117,13 +163,9 @@ func (s *AuthIntegrationSuite) TestRegister_Login_FullFlow() {
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), "test@example.com", user.Email)
 
-	// Wait for email, extract verification token
-	time.Sleep(50 * time.Millisecond)
-	emails := s.emailSender.GetVerificationEmails()
-	require.NotEmpty(s.T(), emails)
-
-	// Verify email
-	err = s.svc.VerifyEmail(ctx, emails[0].Token)
+	// Verification token is enqueued transactionally to the outbox.
+	token := s.outboxToken(emaildomain.EventTypeVerification, "test@example.com")
+	err = s.svc.VerifyEmail(ctx, token)
 	require.NoError(s.T(), err)
 
 	// Login
@@ -172,11 +214,9 @@ func (s *AuthIntegrationSuite) TestRegister_EmailVerificationRequired() {
 	assert.Equal(s.T(), 403, err.(*errx.AppError).HTTPStatus)
 	assert.Contains(s.T(), err.(*errx.AppError).Message, "email verification required")
 
-	// Verify email
-	time.Sleep(50 * time.Millisecond)
-	emails := s.emailSender.GetVerificationEmails()
-	require.NotEmpty(s.T(), emails)
-	err = s.svc.VerifyEmail(ctx, emails[0].Token)
+	// Verify email using the outbox token.
+	token := s.outboxToken(emaildomain.EventTypeVerification, "verify-test@example.com")
+	err = s.svc.VerifyEmail(ctx, token)
 	require.NoError(s.T(), err)
 
 	// Login should now succeed
@@ -281,15 +321,19 @@ func (s *AuthIntegrationSuite) TestRefreshToken_NormalRotation() {
 }
 
 func (s *AuthIntegrationSuite) TestRefreshToken_ReuseDetection() {
-	// Use short grace period for this test
-	shortGraceCfg := config.AuthConfig{
+	graceCfg := config.AuthConfig{
 		JWTSecret:           "test-secret-key-that-is-long-enough",
 		JWTAccessTTL:        15 * time.Minute,
 		JWTRefreshTTL:       168 * time.Hour,
-		RefreshGracePeriod:  100 * time.Millisecond,
+		RefreshGracePeriod:  1 * time.Minute,
 		RegistrationEnabled: true,
 	}
-	s.setupService(shortGraceCfg, testEmailConfig(true))
+	s.setupService(graceCfg, testEmailConfig(true))
+
+	// Drive the service clock so the grace boundary is exercised without sleeping.
+	base := time.Now()
+	current := base
+	s.svc.now = func() time.Time { return current }
 
 	ctx := context.Background()
 	s.registerAndVerify("reuse@example.com", "Password123")
@@ -300,14 +344,18 @@ func (s *AuthIntegrationSuite) TestRefreshToken_ReuseDetection() {
 	}, "test-agent", "127.0.0.1")
 	require.NoError(s.T(), err)
 
-	// Rotate → old token is revoked with short grace period
+	// Rotate at t=base → old token is revoked with GraceUntil = base + 1m.
 	_, err = s.svc.RefreshToken(ctx, tokenResp.RefreshToken)
 	require.NoError(s.T(), err)
 
-	// Wait for grace period to expire
-	time.Sleep(200 * time.Millisecond)
+	// Within the grace window: reusing the old token rotates a fresh one, not reuse.
+	current = base.Add(59 * time.Second)
+	graceResp, err := s.svc.RefreshToken(ctx, tokenResp.RefreshToken)
+	require.NoError(s.T(), err)
+	assert.NotEqual(s.T(), tokenResp.RefreshToken, graceResp.RefreshToken)
 
-	// Reuse old token → 401 reuse detected
+	// At/after the grace boundary: reuse is detected and the session is revoked.
+	current = base.Add(1 * time.Minute)
 	_, err = s.svc.RefreshToken(ctx, tokenResp.RefreshToken)
 	require.Error(s.T(), err)
 	assert.Equal(s.T(), 401, err.(*errx.AppError).HTTPStatus)
@@ -323,14 +371,15 @@ func (s *AuthIntegrationSuite) TestForgotPassword_ResetPassword_Flow() {
 	err := s.svc.ForgotPassword(ctx, "reset-flow@example.com")
 	require.NoError(s.T(), err)
 
-	// Extract reset token from email
-	time.Sleep(50 * time.Millisecond)
-	resetEmails := s.emailSender.GetResetEmails()
-	require.NotEmpty(s.T(), resetEmails)
+	// Reset token is enqueued to the outbox.
+	resetToken := s.outboxToken(emaildomain.EventTypePasswordReset, "reset-flow@example.com")
 
 	// Reset password
-	err = s.svc.ResetPassword(ctx, resetEmails[0].Token, "NewPassword123")
+	err = s.svc.ResetPassword(ctx, resetToken, "NewPassword123")
 	require.NoError(s.T(), err)
+
+	// A password-changed notification is enqueued in the same commit.
+	assert.Equal(s.T(), 1, s.outboxCount(emaildomain.EventTypePasswordChanged, "reset-flow@example.com"))
 
 	// Login with old password → fail
 	_, err = s.svc.Login(ctx, &aservice.LoginRequest{
@@ -370,6 +419,153 @@ func (s *AuthIntegrationSuite) TestGetCurrentUser_NotFound() {
 	_, err := s.svc.GetCurrentUser(ctx, "00000000-0000-0000-0000-000000000000")
 	require.Error(s.T(), err)
 	assert.Equal(s.T(), 401, err.(*errx.AppError).HTTPStatus)
+}
+
+// --- Task 5: transactional outbox enqueue ---
+
+func (s *AuthIntegrationSuite) TestRegister_EnqueuesVerificationEventAtomically() {
+	ctx := context.Background()
+
+	_, err := s.svc.Register(ctx, &aservice.RegisterRequest{
+		Email:    "outbox-register@example.com",
+		Password: "Password123",
+	})
+	require.NoError(s.T(), err)
+
+	// Exactly one verification event, carrying a usable token, is persisted —
+	// no fire-and-forget goroutine, so the sender is never invoked directly.
+	require.Equal(s.T(), 1, s.outboxCount(emaildomain.EventTypeVerification, "outbox-register@example.com"))
+	token := s.outboxToken(emaildomain.EventTypeVerification, "outbox-register@example.com")
+	require.NotEmpty(s.T(), token)
+	assert.Empty(s.T(), s.emailSender.GetVerificationEmails(), "email must be enqueued, not sent inline")
+
+	// The enqueued token verifies the account, proving it committed with the token row.
+	require.NoError(s.T(), s.svc.VerifyEmail(ctx, token))
+}
+
+func (s *AuthIntegrationSuite) TestForgotPassword_UnknownEmailEnqueuesNothing() {
+	err := s.svc.ForgotPassword(context.Background(), "nobody@example.com")
+	require.NoError(s.T(), err) // anti-enumeration: no error leak
+
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypePasswordReset, "nobody@example.com"))
+}
+
+func (s *AuthIntegrationSuite) TestResendVerification_EnqueuesFreshEvent() {
+	ctx := context.Background()
+
+	_, err := s.svc.Register(ctx, &aservice.RegisterRequest{
+		Email:    "resend@example.com",
+		Password: "Password123",
+	})
+	require.NoError(s.T(), err)
+
+	require.NoError(s.T(), s.svc.ResendVerification(ctx, "resend@example.com"))
+
+	// Register + resend each enqueue one verification event for the recipient.
+	assert.Equal(s.T(), 2, s.outboxCount(emaildomain.EventTypeVerification, "resend@example.com"))
+
+	// The newest token still verifies the account.
+	token := s.outboxToken(emaildomain.EventTypeVerification, "resend@example.com")
+	require.NoError(s.T(), s.svc.VerifyEmail(ctx, token))
+}
+
+// failingOutboxRepo fails every enqueue so tests can exercise the atomicity
+// boundary: an enqueue error inside a transaction must roll back the commit.
+// Tests swap it into s.svc.outboxRepo (a legal in-package write to the
+// unexported OutboxRepo field); SetupTest rebuilds a fresh service per test, so
+// the swap never leaks. Do not add t.Parallel() to these tests without giving
+// each its own service — they mutate the shared s.svc.
+type failingOutboxRepo struct{}
+
+func (failingOutboxRepo) EnqueueWithTx(context.Context, pgx.Tx, *emaildomain.OutboxEvent) error {
+	return errors.New("smtp down")
+}
+
+func (s *AuthIntegrationSuite) TestRegister_VerificationEnqueueFailure_StillCreatesUser() {
+	ctx := context.Background()
+
+	// Swap in the failing outbox: Register logs the verification failure but
+	// must still create and return the user.
+	s.svc.outboxRepo = failingOutboxRepo{}
+
+	user, err := s.svc.Register(ctx, &aservice.RegisterRequest{
+		Email:    "enqueue-fail@example.com",
+		Password: "Password123",
+	})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "enqueue-fail@example.com", user.Email)
+
+	// The failed enqueue rolled back the verification-token row with it.
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypeVerification, "enqueue-fail@example.com"))
+	var tokenCount int
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM email_verification_tokens WHERE user_id = $1`, user.ID,
+	).Scan(&tokenCount))
+	assert.Zero(s.T(), tokenCount, "verification token must roll back with the failed enqueue")
+
+	// Account exists but is unverified → login is rejected.
+	_, err = s.svc.Login(ctx, &aservice.LoginRequest{
+		Email:    "enqueue-fail@example.com",
+		Password: "Password123",
+	}, "test-agent", "127.0.0.1")
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), 403, err.(*errx.AppError).HTTPStatus)
+}
+
+func (s *AuthIntegrationSuite) TestResetPassword_EnqueueFailure_RollsBack() {
+	ctx := context.Background()
+
+	s.registerAndVerify("reset-enqueue-fail@example.com", "Password123")
+
+	// Issue a reset token through the real outbox.
+	require.NoError(s.T(), s.svc.ForgotPassword(ctx, "reset-enqueue-fail@example.com"))
+	resetToken := s.outboxToken(emaildomain.EventTypePasswordReset, "reset-enqueue-fail@example.com")
+
+	// Reset with the failing outbox: the password change, token consumption,
+	// and notification must all roll back atomically.
+	s.svc.outboxRepo = failingOutboxRepo{}
+	err := s.svc.ResetPassword(ctx, resetToken, "NewPassword123")
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), 500, err.(*errx.AppError).HTTPStatus)
+
+	// Old password still works — the change did not commit.
+	_, err = s.svc.Login(ctx, &aservice.LoginRequest{
+		Email:    "reset-enqueue-fail@example.com",
+		Password: "Password123",
+	}, "test-agent", "127.0.0.1")
+	require.NoError(s.T(), err)
+
+	// No password-changed notification and no reset-token consumption leaked.
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypePasswordChanged, "reset-enqueue-fail@example.com"))
+	var consumed bool
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		`SELECT used_at IS NOT NULL FROM password_reset_tokens WHERE token_hash = $1`,
+		sha256Hex(resetToken),
+	).Scan(&consumed))
+	assert.False(s.T(), consumed, "reset token must not be consumed when the commit rolls back")
+}
+
+func (s *AuthIntegrationSuite) TestForgotPassword_EnqueueFailure_RollsBack() {
+	ctx := context.Background()
+
+	s.registerAndVerify("forgot-enqueue-fail@example.com", "Password123")
+	u, err := s.svc.userRepo.GetByEmail(ctx, "forgot-enqueue-fail@example.com")
+	require.NoError(s.T(), err)
+
+	// The reset-token create and its email enqueue share one transaction; a
+	// failing enqueue must roll back the newly created token with it.
+	s.svc.outboxRepo = failingOutboxRepo{}
+	err = s.svc.ForgotPassword(ctx, "forgot-enqueue-fail@example.com")
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), 500, err.(*errx.AppError).HTTPStatus)
+
+	// No reset token persisted and no reset email enqueued.
+	var tokenCount int
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = $1`, u.ID,
+	).Scan(&tokenCount))
+	assert.Zero(s.T(), tokenCount, "reset token must roll back with the failed enqueue")
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypePasswordReset, "forgot-enqueue-fail@example.com"))
 }
 
 func TestAuthIntegrationSuite(t *testing.T) {

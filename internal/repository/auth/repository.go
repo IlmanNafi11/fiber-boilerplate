@@ -65,14 +65,6 @@ func (r *SessionRepository) RevokeByID(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *SessionRepository) RevokeByUserID(ctx context.Context, userID string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
-		userID,
-	)
-	return err
-}
-
 func (r *SessionRepository) RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error {
 	_, err := tx.Exec(ctx,
 		`UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
@@ -120,14 +112,6 @@ func (r *RefreshTokenRepository) GetByTokenHash(ctx context.Context, tokenHash s
 	return t, nil
 }
 
-func (r *RefreshTokenRepository) RevokeByID(ctx context.Context, id string, graceUntil *time.Time) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE refresh_tokens SET revoked_at = NOW(), grace_until = $1 WHERE id = $2`,
-		graceUntil, id,
-	)
-	return err
-}
-
 func (r *RefreshTokenRepository) RevokeBySessionID(ctx context.Context, sessionID string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE refresh_tokens SET revoked_at = NOW() WHERE session_id = $1 AND revoked_at IS NULL`,
@@ -152,35 +136,6 @@ func (r *RefreshTokenRepository) RevokeWithTx(ctx context.Context, tx pgx.Tx, id
 	_, err := tx.Exec(ctx,
 		`UPDATE refresh_tokens SET revoked_at = NOW(), grace_until = $1 WHERE id = $2`,
 		graceUntil, id,
-	)
-	return err
-}
-
-func (r *RefreshTokenRepository) GetBySessionIDNewest(ctx context.Context, sessionID string) (*auth.RefreshToken, error) {
-	t := &auth.RefreshToken{}
-	err := r.pool.QueryRow(ctx,
-		`SELECT id, session_id, token_hash, revoked_at, grace_until, created_at, expires_at
-		 FROM refresh_tokens
-		 WHERE session_id = $1 AND revoked_at IS NULL
-		 ORDER BY created_at DESC LIMIT 1`,
-		sessionID,
-	).Scan(&t.ID, &t.SessionID, &t.TokenHash, &t.RevokedAt, &t.GraceUntil, &t.CreatedAt, &t.ExpiresAt)
-
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errx.ErrNotFound
-		}
-		return nil, err
-	}
-	return t, nil
-}
-
-func (r *RefreshTokenRepository) RevokeByUserID(ctx context.Context, userID string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE refresh_tokens SET revoked_at = NOW()
-		 WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)
-		 AND revoked_at IS NULL`,
-		userID,
 	)
 	return err
 }

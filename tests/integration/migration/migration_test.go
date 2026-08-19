@@ -107,11 +107,11 @@ func (s *MigrationSuite) TestApplyAllMigrations() {
 
 	version, dirty, err := m.Version()
 	require.NoError(s.T(), err)
-	assert.Equal(s.T(), uint(4), version)
+	assert.Equal(s.T(), uint(5), version)
 	assert.False(s.T(), dirty)
 
 	// Verify all tables exist
-	for _, table := range []string{"users", "sessions", "refresh_tokens", "email_verification_tokens", "password_reset_tokens", "products"} {
+	for _, table := range []string{"users", "sessions", "refresh_tokens", "email_verification_tokens", "password_reset_tokens", "products", "email_outbox"} {
 		assert.True(s.T(), s.tableExists(table), "table %s should exist", table)
 	}
 }
@@ -128,10 +128,10 @@ func (s *MigrationSuite) TestRollbackLastMigration() {
 
 	version, _, err := m.Version()
 	require.NoError(s.T(), err)
-	assert.Equal(s.T(), uint(3), version)
+	assert.Equal(s.T(), uint(4), version)
 
-	// Products table should NOT exist (it's in migration 4)
-	assert.False(s.T(), s.tableExists("products"), "products table should not exist after rollback")
+	// email_outbox table should NOT exist (it's in migration 5)
+	assert.False(s.T(), s.tableExists("email_outbox"), "email_outbox table should not exist after rollback")
 }
 
 func (s *MigrationSuite) TestReapplyMigrations() {
@@ -149,8 +149,8 @@ func (s *MigrationSuite) TestReapplyMigrations() {
 
 	version, _, err := m.Version()
 	require.NoError(s.T(), err)
-	assert.Equal(s.T(), uint(4), version)
-	assert.True(s.T(), s.tableExists("products"), "products table should exist after re-apply")
+	assert.Equal(s.T(), uint(5), version)
+	assert.True(s.T(), s.tableExists("email_outbox"), "email_outbox table should exist after re-apply")
 }
 
 func (s *MigrationSuite) TestRollbackAllMigrations() {
@@ -182,7 +182,7 @@ func (s *MigrationSuite) TestApplyNoChangeIsIdempotent() {
 
 	version, _, err := m.Version()
 	require.NoError(s.T(), err)
-	assert.Equal(s.T(), uint(4), version)
+	assert.Equal(s.T(), uint(5), version)
 }
 
 func TestMigrationSuite(t *testing.T) {

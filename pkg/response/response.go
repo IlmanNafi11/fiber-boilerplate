@@ -1,8 +1,9 @@
 // Package response provides the unified API response envelope and helper functions.
 //
 // Every HTTP response follows the same envelope structure:
-//   - Success: {"success": true, "message": "...", "data": {...}}
-//   - Error:   {"success": false, "message": "...", "errors": [...]}
+//   - Success:   {"success": true, "message": "...", "data": {...}}
+//   - Error:     {"success": false, "code": "NOT_FOUND", "message": "..."}
+//   - Validation:{"success": false, "code": "VALIDATION_ERROR", "message": "...", "errors": [...]}
 //   - Paginated: {"success": true, "message": "...", "data": [...], "meta": {...}}
 //
 // Handlers use the success helpers (OK, Created, etc.) for success responses.
@@ -14,11 +15,12 @@ import (
 )
 
 // Response is the unified API response envelope. Fields use omitempty so that
-// success responses omit "errors", error responses omit "data"/"meta", and
-// non-paginated responses omit "meta".
+// success responses omit "code"/"errors", error responses omit "data"/"meta",
+// and non-paginated responses omit "meta".
 type Response struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
+	Code    string      `json:"code,omitempty"`
 	Data    any         `json:"data,omitempty"`
 	Meta    *Meta       `json:"meta,omitempty"`
 	Errors  []ErrorItem `json:"errors,omitempty"`
@@ -31,10 +33,11 @@ type Meta struct {
 	Total int `json:"total"`
 }
 
-// ErrorItem represents a single error in the response. Field is omitted for
-// non-field errors (e.g., {"message": "token expired"}).
+// ErrorItem represents a single field-level validation error. It is only used
+// for validation responses; general errors carry their machine code in
+// Response.Code and their human message in Response.Message.
 type ErrorItem struct {
-	Field   string `json:"field,omitempty"`
+	Field   string `json:"field"`
 	Message string `json:"message"`
 }
 

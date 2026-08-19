@@ -36,10 +36,6 @@ func (m *mockRefreshTokenRepo) RevokeBySessionID(ctx context.Context, sessionID 
 	return m.Called(ctx, sessionID).Error(0)
 }
 
-func (m *mockRefreshTokenRepo) RevokeByUserID(_ context.Context, _ string) error {
-	return nil
-}
-
 func (m *mockRefreshTokenRepo) RevokeWithTx(_ context.Context, _ pgx.Tx, _ string, _ *time.Time) error {
 	return nil
 }
@@ -72,10 +68,6 @@ func (m *mockSessionRepo) RevokeByID(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *mockSessionRepo) RevokeByUserID(_ context.Context, _ string) error {
-	return nil
-}
-
 func (m *mockSessionRepo) RevokeByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
 	return nil
 }
@@ -97,20 +89,21 @@ func (m *mockEmailVerificationTokenRepo) GetByTokenHash(_ context.Context, token
 	return args.Get(0).(*aservice.EmailVerificationToken), args.Error(1)
 }
 
-func (m *mockEmailVerificationTokenRepo) GetActiveByUserID(_ context.Context, userID string) (*aservice.EmailVerificationToken, error) {
-	args := m.Called(userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*aservice.EmailVerificationToken), args.Error(1)
-}
-
 func (m *mockEmailVerificationTokenRepo) MarkUsed(_ context.Context, id string) error {
 	return m.Called(id).Error(0)
 }
 
 func (m *mockEmailVerificationTokenRepo) MarkUsedByUserID(_ context.Context, userID string) error {
 	return m.Called(userID).Error(0)
+}
+
+func (m *mockEmailVerificationTokenRepo) CreateWithTx(_ context.Context, _ pgx.Tx, t *aservice.EmailVerificationToken) error {
+	t.ID = uuid.New().String()
+	return nil
+}
+
+func (m *mockEmailVerificationTokenRepo) MarkUsedByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
+	return nil
 }
 
 type mockPasswordResetTokenRepo struct {
@@ -130,16 +123,21 @@ func (m *mockPasswordResetTokenRepo) GetByTokenHash(_ context.Context, tokenHash
 	return args.Get(0).(*aservice.PasswordResetToken), args.Error(1)
 }
 
-func (m *mockPasswordResetTokenRepo) MarkUsed(_ context.Context, id string) error {
-	return m.Called(id).Error(0)
-}
-
 func (m *mockPasswordResetTokenRepo) MarkUsedWithTx(_ context.Context, _ pgx.Tx, id string) error {
 	return m.Called(id).Error(0)
 }
 
 func (m *mockPasswordResetTokenRepo) MarkUsedByUserID(_ context.Context, userID string) error {
 	return m.Called(userID).Error(0)
+}
+
+func (m *mockPasswordResetTokenRepo) CreateWithTx(_ context.Context, _ pgx.Tx, t *aservice.PasswordResetToken) error {
+	t.ID = uuid.New().String()
+	return nil
+}
+
+func (m *mockPasswordResetTokenRepo) MarkUsedByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
+	return nil
 }
 
 // --- CaptureEmailSender captures email arguments for integration tests ---

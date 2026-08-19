@@ -8,8 +8,10 @@ import (
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
+	emaildomain "github.com/ilmannafi/fiber-boilerplate/internal/domain/email"
 	usermodel "github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
+	"github.com/ilmannafi/fiber-boilerplate/internal/service/email"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/errx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,7 +24,6 @@ type RefreshTokenRepo interface {
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.RefreshToken, error)
 	Create(ctx context.Context, t *authdto.RefreshToken) error
 	RevokeBySessionID(ctx context.Context, sessionID string) error
-	RevokeByUserID(ctx context.Context, userID string) error
 	RevokeWithTx(ctx context.Context, tx pgx.Tx, id string, graceUntil *time.Time) error
 	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.RefreshToken) error
 	RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
@@ -33,33 +34,32 @@ type SessionRepo interface {
 	Create(ctx context.Context, s *authdto.Session) error
 	GetByID(ctx context.Context, id string) (*authdto.Session, error)
 	RevokeByID(ctx context.Context, id string) error
-	RevokeByUserID(ctx context.Context, userID string) error
 	RevokeByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 }
 
 // EmailVerificationTokenRepo defines the interface for email verification token persistence.
 type EmailVerificationTokenRepo interface {
 	Create(ctx context.Context, t *authdto.EmailVerificationToken) error
+	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.EmailVerificationToken) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.EmailVerificationToken, error)
-	GetActiveByUserID(ctx context.Context, userID string) (*authdto.EmailVerificationToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
+	MarkUsedByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 }
 
 // PasswordResetTokenRepo defines the interface for password reset token persistence.
 type PasswordResetTokenRepo interface {
 	Create(ctx context.Context, t *authdto.PasswordResetToken) error
+	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.PasswordResetToken) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.PasswordResetToken, error)
-	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
+	MarkUsedByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 	MarkUsedWithTx(ctx context.Context, tx pgx.Tx, id string) error
 }
 
-// EmailSender defines the interface for sending transactional emails.
-type EmailSender interface {
-	SendVerificationEmail(ctx context.Context, to, token string) error
-	SendPasswordResetEmail(ctx context.Context, to, token string) error
-	SendPasswordChangedNotification(ctx context.Context, to string) error
+// OutboxRepo enqueues durable email events within a caller-provided transaction.
+type OutboxRepo interface {
+	EnqueueWithTx(ctx context.Context, tx pgx.Tx, e *emaildomain.OutboxEvent) error
 }
 
 type AuthService struct {
@@ -68,12 +68,14 @@ type AuthService struct {
 	refreshTokenRepo           RefreshTokenRepo
 	emailVerificationTokenRepo EmailVerificationTokenRepo
 	passwordResetTokenRepo     PasswordResetTokenRepo
+	outboxRepo                 OutboxRepo
 	tokenHelper                *TokenHelper
-	emailSender                EmailSender
+	emailSender                email.EmailSender
 	cfg                        config.AuthConfig
 	emailCfg                   config.EmailConfig
 	logger                     *zap.Logger
 	pool                       *pgxpool.Pool
+	now                        func() time.Time
 }
 
 func NewAuthService(
@@ -82,8 +84,9 @@ func NewAuthService(
 	refreshTokenRepo RefreshTokenRepo,
 	emailVerificationTokenRepo EmailVerificationTokenRepo,
 	passwordResetTokenRepo PasswordResetTokenRepo,
+	outboxRepo OutboxRepo,
 	tokenHelper *TokenHelper,
-	emailSender EmailSender,
+	emailSender email.EmailSender,
 	cfg config.AuthConfig,
 	emailCfg config.EmailConfig,
 	logger *zap.Logger,
@@ -95,13 +98,24 @@ func NewAuthService(
 		refreshTokenRepo:           refreshTokenRepo,
 		emailVerificationTokenRepo: emailVerificationTokenRepo,
 		passwordResetTokenRepo:     passwordResetTokenRepo,
+		outboxRepo:                 outboxRepo,
 		tokenHelper:                tokenHelper,
 		emailSender:                emailSender,
 		cfg:                        cfg,
 		emailCfg:                   emailCfg,
 		logger:                     logger,
 		pool:                       pool,
+		now:                        time.Now,
 	}
+}
+
+// clock returns the current time via the injected clock, falling back to
+// time.Now when the service was built without one (e.g. struct-literal tests).
+func (s *AuthService) clock() time.Time {
+	if fn := s.now; fn != nil {
+		return fn()
+	}
+	return time.Now()
 }
 
 func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest) (*usermodel.User, error) {
@@ -109,18 +123,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		return nil, errx.Forbidden("registration is currently disabled")
 	}
 
-	// Supplementary password validation: at least 1 letter and 1 digit
-	hasLetter := false
-	hasDigit := false
-	for _, c := range req.Password {
-		if unicode.IsLetter(c) {
-			hasLetter = true
-		}
-		if unicode.IsDigit(c) {
-			hasDigit = true
-		}
-	}
-	if !hasLetter || !hasDigit {
+	if !passwordHasLetterAndDigit(req.Password) {
 		return nil, errx.BadRequest("password must contain at least one letter and one digit")
 	}
 
@@ -143,7 +146,9 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		return nil, errx.Internal("user creation failed", err.Error())
 	}
 
-	// Handle email verification (D-10, D-13, EML-01)
+	// Handle email verification (D-10, D-13, EML-01). The token and its outbox
+	// event commit together so a durable dispatch is guaranteed for every
+	// verification token that reaches persistence.
 	if s.emailCfg.VerificationEnabled {
 		plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 		if err != nil {
@@ -152,25 +157,21 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 			verificationToken := &authdto.EmailVerificationToken{
 				UserID:    u.ID,
 				TokenHash: tokenHash,
-				ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
+				ExpiresAt: s.clock().Add(s.emailCfg.VerificationTokenTTL),
 			}
-			if err := s.emailVerificationTokenRepo.Create(ctx, verificationToken); err != nil {
-				s.logger.Error("failed to store verification token", zap.Error(err))
-			} else {
-				go func() {
-					emailCtx := context.WithoutCancel(ctx)
-					if err := s.emailSender.SendVerificationEmail(emailCtx, u.Email, plainToken); err != nil {
-						s.logger.Error("failed to send verification email",
-							zap.String("user_id", u.ID),
-							zap.Error(err),
-						)
-					}
-				}()
+			err := s.withTx(ctx, func(tx pgx.Tx) error {
+				if err := s.emailVerificationTokenRepo.CreateWithTx(ctx, tx, verificationToken); err != nil {
+					return err
+				}
+				return s.enqueueTokenEmail(ctx, tx, emaildomain.EventTypeVerification, u.Email, plainToken)
+			})
+			if err != nil {
+				s.logger.Error("failed to persist verification token", zap.String("user_id", u.ID), zap.Error(err))
 			}
 		}
 	} else {
 		if err := s.userRepo.UpdateEmailVerifiedAt(ctx, u.ID); err == nil {
-			now := time.Now()
+			now := s.clock()
 			u.EmailVerifiedAt = &now
 		}
 	}
@@ -206,39 +207,21 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 		UserID:    u.ID,
 		UserAgent: userAgent,
 		IPAddress: ip,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
+		ExpiresAt: s.clock().Add(s.tokenHelper.RefreshTTL()),
 	}
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
 		return nil, errx.Internal("session creation failed", err.Error())
 	}
 
-	// Generate refresh token
-	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
+	plainToken, refreshToken, err := s.newRefreshToken(session.ID)
 	if err != nil {
 		return nil, errx.Internal("token generation failed", err.Error())
-	}
-
-	refreshToken := &authdto.RefreshToken{
-		SessionID: session.ID,
-		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 	}
 	if err := s.refreshTokenRepo.Create(ctx, refreshToken); err != nil {
 		return nil, errx.Internal("refresh token storage failed", err.Error())
 	}
 
-	// Generate access token
-	accessToken, err := s.tokenHelper.GenerateAccessToken(u.ID, u.Role, session.ID)
-	if err != nil {
-		return nil, errx.Internal("access token generation failed", err.Error())
-	}
-
-	return &authdto.TokenResponse{
-		AccessToken:  accessToken,
-		RefreshToken: plainToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
-	}, nil
+	return s.buildTokenResponse(u.ID, u.Role, session.ID, plainToken)
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*authdto.TokenResponse, error) {
@@ -253,7 +236,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 	}
 
 	// Check token expiry
-	if time.Now().After(token.ExpiresAt) {
+	if s.clock().After(token.ExpiresAt) {
 		return nil, errx.Unauthorized("refresh token expired")
 	}
 
@@ -268,16 +251,10 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 
 	// Reuse detection: token already revoked
 	if token.RevokedAt != nil {
-		if token.GraceUntil != nil && time.Now().Before(*token.GraceUntil) {
-			newPlain, newHash, err := s.tokenHelper.GenerateRefreshToken()
+		if token.GraceUntil != nil && s.clock().Before(*token.GraceUntil) {
+			newPlain, newToken, err := s.newRefreshToken(session.ID)
 			if err != nil {
 				return nil, errx.Internal("token generation failed", err.Error())
-			}
-
-			newToken := &authdto.RefreshToken{
-				SessionID: session.ID,
-				TokenHash: newHash,
-				ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 			}
 			if err := s.refreshTokenRepo.Create(ctx, newToken); err != nil {
 				return nil, errx.Internal("refresh token storage failed", err.Error())
@@ -288,17 +265,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 				return nil, errx.Internal("user lookup failed", err.Error())
 			}
 
-			accessToken, err := s.tokenHelper.GenerateAccessToken(u.ID, u.Role, session.ID)
-			if err != nil {
-				return nil, errx.Internal("access token generation failed", err.Error())
-			}
-
-			return &authdto.TokenResponse{
-				AccessToken:  accessToken,
-				RefreshToken: newPlain,
-				TokenType:    "Bearer",
-				ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
-			}, nil
+			return s.buildTokenResponse(u.ID, u.Role, session.ID, newPlain)
 		}
 
 		// Outside grace period — reuse detected, revoke entire session
@@ -318,20 +285,14 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 		}
 	}()
 
-	graceTime := time.Now().Add(s.tokenHelper.GracePeriod())
+	graceTime := s.clock().Add(s.tokenHelper.GracePeriod())
 	if err := s.refreshTokenRepo.RevokeWithTx(ctx, tx, token.ID, &graceTime); err != nil {
 		return nil, errx.Internal("token revocation failed", err.Error())
 	}
 
-	newPlain, newHash, err := s.tokenHelper.GenerateRefreshToken()
+	newPlain, newToken, err := s.newRefreshToken(session.ID)
 	if err != nil {
 		return nil, errx.Internal("token generation failed", err.Error())
-	}
-
-	newToken := &authdto.RefreshToken{
-		SessionID: session.ID,
-		TokenHash: newHash,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 	}
 	if err := s.refreshTokenRepo.CreateWithTx(ctx, tx, newToken); err != nil {
 		return nil, errx.Internal("refresh token creation failed", err.Error())
@@ -347,17 +308,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 		return nil, errx.Internal("user lookup failed", err.Error())
 	}
 
-	accessToken, err := s.tokenHelper.GenerateAccessToken(u.ID, u.Role, session.ID)
-	if err != nil {
-		return nil, errx.Internal("access token generation failed", err.Error())
-	}
-
-	return &authdto.TokenResponse{
-		AccessToken:  accessToken,
-		RefreshToken: newPlain,
-		TokenType:    "Bearer",
-		ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
-	}, nil
+	return s.buildTokenResponse(u.ID, u.Role, session.ID, newPlain)
 }
 
 func (s *AuthService) Logout(ctx context.Context, plainToken string) error {
@@ -402,7 +353,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 		return errx.BadRequest("verification token already used")
 	}
 
-	if time.Now().After(verificationToken.ExpiresAt) {
+	if s.clock().After(verificationToken.ExpiresAt) {
 		return errx.BadRequest("verification token has expired")
 	}
 
@@ -427,13 +378,6 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 		return nil
 	}
 
-	if err := s.emailVerificationTokenRepo.MarkUsedByUserID(ctx, u.ID); err != nil {
-		s.logger.Warn("failed to invalidate previous verification tokens",
-			zap.String("user_id", u.ID),
-			zap.Error(err),
-		)
-	}
-
 	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 	if err != nil {
 		return errx.Internal("token generation failed", err.Error())
@@ -442,21 +386,22 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 	verificationToken := &authdto.EmailVerificationToken{
 		UserID:    u.ID,
 		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
-	}
-	if err := s.emailVerificationTokenRepo.Create(ctx, verificationToken); err != nil {
-		return errx.Internal("token storage failed", err.Error())
+		ExpiresAt: s.clock().Add(s.emailCfg.VerificationTokenTTL),
 	}
 
-	go func() {
-		emailCtx := context.WithoutCancel(ctx)
-		if err := s.emailSender.SendVerificationEmail(emailCtx, u.Email, plainToken); err != nil {
-			s.logger.Error("failed to send verification email",
-				zap.String("user_id", u.ID),
-				zap.Error(err),
-			)
+	// Invalidate outstanding tokens, persist the new one, and enqueue its email
+	// atomically so a resend never leaves a token without a durable dispatch.
+	if err := s.withTx(ctx, func(tx pgx.Tx) error {
+		if err := s.emailVerificationTokenRepo.MarkUsedByUserIDWithTx(ctx, tx, u.ID); err != nil {
+			return err
 		}
-	}()
+		if err := s.emailVerificationTokenRepo.CreateWithTx(ctx, tx, verificationToken); err != nil {
+			return err
+		}
+		return s.enqueueTokenEmail(ctx, tx, emaildomain.EventTypeVerification, u.Email, plainToken)
+	}); err != nil {
+		return errx.Internal("token storage failed", err.Error())
+	}
 
 	return nil
 }
@@ -467,13 +412,6 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		return nil
 	}
 
-	if err := s.passwordResetTokenRepo.MarkUsedByUserID(ctx, u.ID); err != nil {
-		s.logger.Warn("failed to invalidate previous reset tokens",
-			zap.String("user_id", u.ID),
-			zap.Error(err),
-		)
-	}
-
 	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 	if err != nil {
 		return errx.Internal("token generation failed", err.Error())
@@ -482,21 +420,23 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	resetToken := &authdto.PasswordResetToken{
 		UserID:    u.ID,
 		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.emailCfg.PasswordResetTokenTTL),
-	}
-	if err := s.passwordResetTokenRepo.Create(ctx, resetToken); err != nil {
-		return errx.Internal("token storage failed", err.Error())
+		ExpiresAt: s.clock().Add(s.emailCfg.PasswordResetTokenTTL),
 	}
 
-	go func() {
-		emailCtx := context.WithoutCancel(ctx)
-		if err := s.emailSender.SendPasswordResetEmail(emailCtx, u.Email, plainToken); err != nil {
-			s.logger.Error("failed to send password reset email",
-				zap.String("user_id", u.ID),
-				zap.Error(err),
-			)
+	// Invalidate outstanding reset tokens, persist the new one, and enqueue its
+	// email atomically. Anti-enumeration is preserved: unknown emails return
+	// nil above before any state change.
+	if err := s.withTx(ctx, func(tx pgx.Tx) error {
+		if err := s.passwordResetTokenRepo.MarkUsedByUserIDWithTx(ctx, tx, u.ID); err != nil {
+			return err
 		}
-	}()
+		if err := s.passwordResetTokenRepo.CreateWithTx(ctx, tx, resetToken); err != nil {
+			return err
+		}
+		return s.enqueueTokenEmail(ctx, tx, emaildomain.EventTypePasswordReset, u.Email, plainToken)
+	}); err != nil {
+		return errx.Internal("token storage failed", err.Error())
+	}
 
 	return nil
 }
@@ -516,27 +456,24 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return errx.BadRequest("reset token already used")
 	}
 
-	if time.Now().After(resetToken.ExpiresAt) {
+	if s.clock().After(resetToken.ExpiresAt) {
 		return errx.BadRequest("reset token has expired")
 	}
 
-	hasLetter := false
-	hasDigit := false
-	for _, c := range newPassword {
-		if unicode.IsLetter(c) {
-			hasLetter = true
-		}
-		if unicode.IsDigit(c) {
-			hasDigit = true
-		}
-	}
-	if !hasLetter || !hasDigit {
+	if !passwordHasLetterAndDigit(newPassword) {
 		return errx.BadRequest("password must contain at least one letter and one digit")
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return errx.Internal("password hashing failed", err.Error())
+	}
+
+	// Fetch the recipient before the transaction so the password-changed
+	// notification can be enqueued atomically with the password change.
+	u, err := s.userRepo.GetByID(ctx, resetToken.UserID)
+	if err != nil {
+		return errx.Internal("user lookup failed", err.Error())
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -565,21 +502,13 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return errx.Internal("refresh token revocation failed", err.Error())
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return errx.Internal("transaction commit failed", err.Error())
+	changedEvent := emaildomain.NewNotificationEvent(emaildomain.EventTypePasswordChanged, u.Email)
+	if err := s.outboxRepo.EnqueueWithTx(ctx, tx, changedEvent); err != nil {
+		return errx.Internal("notification enqueue failed", err.Error())
 	}
 
-	u, err := s.userRepo.GetByID(ctx, resetToken.UserID)
-	if err == nil {
-		go func() {
-			emailCtx := context.WithoutCancel(ctx)
-			if err := s.emailSender.SendPasswordChangedNotification(emailCtx, u.Email); err != nil {
-				s.logger.Error("failed to send password change notification",
-					zap.String("user_id", u.ID),
-					zap.Error(err),
-				)
-			}
-		}()
+	if err := tx.Commit(ctx); err != nil {
+		return errx.Internal("transaction commit failed", err.Error())
 	}
 
 	return nil
@@ -601,5 +530,82 @@ func (s *AuthService) GetCurrentUser(ctx context.Context, userID string) (*authd
 		IsActive:        u.IsActive,
 		EmailVerifiedAt: u.EmailVerifiedAt,
 		CreatedAt:       u.CreatedAt,
+	}, nil
+}
+
+// passwordHasLetterAndDigit reports whether p contains at least one letter and
+// one digit — the supplementary password rule shared by Register and
+// ResetPassword.
+func passwordHasLetterAndDigit(p string) bool {
+	hasLetter := false
+	hasDigit := false
+	for _, c := range p {
+		if unicode.IsLetter(c) {
+			hasLetter = true
+		}
+		if unicode.IsDigit(c) {
+			hasDigit = true
+		}
+	}
+	return hasLetter && hasDigit
+}
+
+// newRefreshToken generates a refresh token for the session, returning the
+// plaintext (for the client) and the *authdto.RefreshToken to persist. It is
+// pure: the caller chooses the transactional or non-transactional persistence
+// path, keeping transaction boundaries explicit.
+func (s *AuthService) newRefreshToken(sessionID string) (string, *authdto.RefreshToken, error) {
+	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
+	if err != nil {
+		return "", nil, err
+	}
+	return plainToken, &authdto.RefreshToken{
+		SessionID: sessionID,
+		TokenHash: tokenHash,
+		ExpiresAt: s.clock().Add(s.tokenHelper.RefreshTTL()),
+	}, nil
+}
+
+// withTx runs fn inside a database transaction, committing on success and
+// rolling back on any error. It centralizes the commit/rollback boilerplate for
+// the auth flows that persist state and enqueue an outbox email atomically.
+func (s *AuthService) withTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			s.logger.Debug("deferred rollback after commit", zap.Error(err))
+		}
+	}()
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// enqueueTokenEmail enqueues a token-carrying email event within tx.
+func (s *AuthService) enqueueTokenEmail(ctx context.Context, tx pgx.Tx, eventType, recipient, token string) error {
+	event, err := emaildomain.NewTokenEvent(eventType, recipient, token)
+	if err != nil {
+		return err
+	}
+	return s.outboxRepo.EnqueueWithTx(ctx, tx, event)
+}
+
+// buildTokenResponse mints an access token and assembles the TokenResponse from
+// an already-persisted refresh token's plaintext.
+func (s *AuthService) buildTokenResponse(userID, role, sessionID, plainRefreshToken string) (*authdto.TokenResponse, error) {
+	accessToken, err := s.tokenHelper.GenerateAccessToken(userID, role, sessionID)
+	if err != nil {
+		return nil, errx.Internal("access token generation failed", err.Error())
+	}
+	return &authdto.TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: plainRefreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    s.tokenHelper.AccessTTLSeconds(),
 	}, nil
 }

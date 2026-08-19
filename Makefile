@@ -2,7 +2,7 @@
 # Run `make help` to see all available targets.
 
 .PHONY: help run dev build test test-unit test-integration test-coverage \
-        lint fmt fmt-check \
+        lint fmt fmt-check vulncheck \
         swagger \
         migrate-up migrate-down migrate-down-all migrate-version \
         migrate-force migrate-create \
@@ -51,6 +51,17 @@ fmt: ## Auto-format code with gofmt and Swagger annotations
 
 fmt-check: ## Check formatting without modifying files (CI)
 	test -z "$$(gofmt -l .)"
+
+# ── Security ───────────────────────────────────────────────
+
+GOVULNCHECK_VERSION := v1.1.4
+
+vulncheck: ## Scan dependencies for known vulnerabilities (pinned govulncheck)
+	@go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./... || { \
+		status=$$?; \
+		echo "ERROR: govulncheck failed (exit $$status). If installation failed, ensure network access to the Go module proxy and a working toolchain, then rerun: make vulncheck"; \
+		exit $$status; \
+	}
 
 # ── Database Migrations ────────────────────────────────────
 migrate-up: ## Apply all pending migrations

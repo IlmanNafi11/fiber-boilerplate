@@ -17,6 +17,7 @@ import (
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/handler"
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/middleware"
 	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
+	outboxrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/emailoutbox"
 	productrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/product"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
@@ -24,6 +25,7 @@ import (
 	productservice "github.com/ilmannafi/fiber-boilerplate/internal/service/product"
 	"github.com/ilmannafi/fiber-boilerplate/pkg/response"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +38,7 @@ func (v *structValidator) Validate(out any) error {
 	return v.validate.Struct(out)
 }
 
-func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fiber.App {
+func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool, extraGatherers ...prometheus.Gatherer) *fiber.App {
 	// Create validator with JSON tag name resolution
 	v := validator.New()
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
@@ -53,9 +55,18 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		StructValidator: &structValidator{validate: v},
 	})
 
-	// Order per D-15: recover -> requestid -> cors -> logger -> routes
+	// Order per D-15: metrics -> recover -> requestid -> cors -> logger -> routes.
+	// Metrics wraps recover so a recovered panic is still recorded as 5xx.
 
-	// 1. Recover -- must be first to catch all panics (SEC-06, D-14)
+	// 0. RED metrics — records method/route/status_class for every request.
+	// Outermost so its deferred observe runs after recover sets the final status.
+	metrics := NewMetrics()
+	for _, g := range extraGatherers {
+		metrics.AddGatherer(g)
+	}
+	app.Use(metrics.Middleware())
+
+	// 1. Recover -- catches all panics (SEC-06, D-14)
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: true,
 		StackTraceHandler: func(c fiber.Ctx, v any) {
@@ -90,17 +101,27 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		},
 	}))
 
-	// 5. Root routes — NOT rate-limited (D-14)
+	// Metrics scrape endpoint — infra endpoint, outside /api/v1, not
+	// rate-limited or authenticated (see Metrics.Handler exposure policy).
+	app.Get("/metrics", metrics.Handler())
+
+	// 5. Root & infra-probe routes — NOT rate-limited (D-14).
+	// "/" and "/health" are infra probes: orchestrators/load balancers read only
+	// their HTTP status code, so they sit outside the /api/v1 response envelope
+	// intentionally (not a silent exception).
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendString("OK")
 	})
 
-	// Panic test route (used by tests)
-	app.Get("/panic", func(c fiber.Ctx) error {
-		panic("test panic")
-	})
+	// Panic test route — exercises the recover middleware. Registered only
+	// outside production so a live deployment can never trip it.
+	if cfg.Server.Env != "production" {
+		app.Get("/panic", func(c fiber.Ctx) error {
+			panic("test panic")
+		})
+	}
 
-	// Health check — not rate-limited, no auth required (D-18, TOOL-04)
+	// Health check — infra probe, not rate-limited, no auth required (D-18, TOOL-04).
 	healthHandler := handler.NewHealthHandler(pool)
 	app.Get("/health", healthHandler.Check)
 
@@ -122,12 +143,14 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		refreshTokenRepo := authrepo.NewRefreshTokenRepository(pool)
 		emailVerificationTokenRepo := authrepo.NewEmailVerificationTokenRepository(pool)
 		passwordResetTokenRepo := authrepo.NewPasswordResetTokenRepository(pool)
+		outboxRepo := outboxrepo.NewRepository(pool)
 
 		tokenHelper := authservice.NewTokenHelper(cfg.Auth)
 		emailSender := emailsender.NewSMTPEmailSender(cfg.SMTP, logger)
 		authSvc := authservice.NewAuthService(
 			userRepo, sessionRepo, refreshTokenRepo,
 			emailVerificationTokenRepo, passwordResetTokenRepo,
+			outboxRepo,
 			tokenHelper, emailSender,
 			cfg.Auth, cfg.Email,
 			logger, pool,
