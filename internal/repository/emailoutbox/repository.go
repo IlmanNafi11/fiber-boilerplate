@@ -114,3 +114,28 @@ func (r *Repository) MarkRetry(ctx context.Context, id string, nextAttemptAt tim
 	)
 	return err
 }
+
+// PendingStats reports the number of pending events and the age of the oldest
+// one relative to now, for backlog metrics. When no events are pending it
+// returns (0, 0, nil). Age is derived from created_at so it reflects how long
+// the oldest event has been waiting to be delivered.
+func (r *Repository) PendingStats(ctx context.Context, now time.Time) (int, time.Duration, error) {
+	var count int
+	var oldestCreatedAt *time.Time
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*), MIN(created_at)
+		 FROM email_outbox
+		 WHERE status = 'pending'`,
+	).Scan(&count, &oldestCreatedAt)
+	if err != nil {
+		return 0, 0, err
+	}
+	if oldestCreatedAt == nil {
+		return 0, 0, nil
+	}
+	age := now.Sub(*oldestCreatedAt)
+	if age < 0 {
+		age = 0
+	}
+	return count, age, nil
+}

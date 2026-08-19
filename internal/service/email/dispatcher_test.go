@@ -17,11 +17,14 @@ import (
 // fakeOutboxRepo is an in-memory stand-in for the outbox repository. It records
 // mark calls so tests can assert on dispatch outcomes without a database.
 type fakeOutboxRepo struct {
-	mu       sync.Mutex
-	pending  []*emaildomain.OutboxEvent
-	sent     []string
-	retries  []retryCall
-	claimErr error
+	mu             sync.Mutex
+	pending        []*emaildomain.OutboxEvent
+	sent           []string
+	retries        []retryCall
+	claimErr       error
+	pendingCount   int
+	pendingOldest  time.Duration
+	pendingStatErr error
 }
 
 type retryCall struct {
@@ -71,6 +74,31 @@ func (f *fakeOutboxRepo) retryCalls() []retryCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]retryCall(nil), f.retries...)
+}
+
+func (f *fakeOutboxRepo) PendingStats(_ context.Context, _ time.Time) (int, time.Duration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pendingCount, f.pendingOldest, f.pendingStatErr
+}
+
+func TestDispatcher_UpdatesPendingGaugesFromRepoStats(t *testing.T) {
+	repo := &fakeOutboxRepo{pendingCount: 5, pendingOldest: 90 * time.Second}
+	d := NewDispatcher(repo, &recordingSender{}, testDispatcherConfig(), zap.NewNop())
+
+	_, err := d.dispatchOnce(context.Background())
+	require.NoError(t, err)
+
+	reg := d.Metrics().Registry()
+	count := gatherFamily(t, reg, "outbox_pending_events")
+	require.NotNil(t, count)
+	require.Len(t, count.GetMetric(), 1)
+	assert.Equal(t, float64(5), count.GetMetric()[0].GetGauge().GetValue())
+
+	age := gatherFamily(t, reg, "outbox_oldest_pending_age_seconds")
+	require.NotNil(t, age)
+	require.Len(t, age.GetMetric(), 1)
+	assert.Equal(t, float64(90), age.GetMetric()[0].GetGauge().GetValue())
 }
 
 // recordingSender records what it was asked to send and can fail on demand.
@@ -155,6 +183,29 @@ func TestDispatcher_DispatchesEachEventTypeToSender(t *testing.T) {
 	assert.Equal(t, "rtok", sender.resets[0].Token)
 	require.Len(t, sender.changed, 1)
 	assert.Equal(t, "changed@example.com", sender.changed[0])
+}
+
+func TestDispatcher_RecordsSentAndDeadOutcomesInMetrics(t *testing.T) {
+	repo := &fakeOutboxRepo{pending: []*emaildomain.OutboxEvent{
+		tokenEvent(t, "1", emaildomain.EventTypeVerification, "v@example.com", "vtok"),
+		{ID: "2", EventType: "bogus", Recipient: "b@example.com", Payload: []byte("{}"), Status: emaildomain.OutboxStatusPending},
+	}}
+	sender := &recordingSender{}
+	d := NewDispatcher(repo, sender, testDispatcherConfig(), zap.NewNop())
+
+	_, err := d.dispatchOnce(context.Background())
+	require.NoError(t, err)
+
+	reg := d.Metrics().Registry()
+	fam := gatherFamily(t, reg, "outbox_dispatch_events_total")
+	require.NotNil(t, fam)
+
+	counts := map[string]float64{}
+	for _, m := range fam.GetMetric() {
+		counts[labelVal(m, "event_type")+"/"+labelVal(m, "outcome")] = m.GetCounter().GetValue()
+	}
+	assert.Equal(t, float64(1), counts["verification/sent"])
+	assert.Equal(t, float64(1), counts["bogus/dead"])
 }
 
 func TestDispatcher_TransientFailureReschedulesWithBackoff(t *testing.T) {

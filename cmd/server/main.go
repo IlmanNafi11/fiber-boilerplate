@@ -55,13 +55,15 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 4. Create Fiber server with middleware chain and auth routes
-	app := http.NewServer(cfg, appLogger, pool)
-
-	// 4b. Start the durable email dispatcher (drains the outbox; at-least-once).
+	// 4. Build the durable email dispatcher (drains the outbox; at-least-once)
+	// before the server so its metrics registry can be scraped via /metrics.
 	outboxRepo := outboxrepo.NewRepository(pool)
 	emailSender := emailservice.NewSMTPEmailSender(cfg.SMTP, appLogger)
 	dispatcher := emailservice.NewFromConfig(outboxRepo, emailSender, cfg.Email, appLogger)
+
+	// 4b. Create Fiber server; expose outbox metrics alongside HTTP metrics.
+	app := http.NewServer(cfg, appLogger, pool, dispatcher.Metrics().Registry())
+
 	dispatcherDone := make(chan struct{})
 	go func() {
 		dispatcher.Run(ctx)

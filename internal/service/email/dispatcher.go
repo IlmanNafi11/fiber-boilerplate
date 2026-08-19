@@ -19,6 +19,9 @@ type OutboxRepo interface {
 	ClaimBatch(ctx context.Context, workerID string, limit int, lease time.Duration, now time.Time) ([]*emaildomain.OutboxEvent, error)
 	MarkSent(ctx context.Context, id string) error
 	MarkRetry(ctx context.Context, id string, nextAttemptAt time.Time, lastError string, dead bool) error
+	// PendingStats reports the number of pending events and the age of the
+	// oldest one, for backlog metrics. oldestAge is 0 when none are pending.
+	PendingStats(ctx context.Context, now time.Time) (count int, oldestAge time.Duration, err error)
 }
 
 // DispatcherConfig tunes the dispatch loop and retry policy.
@@ -43,6 +46,7 @@ type Dispatcher struct {
 	sender   EmailSender
 	cfg      DispatcherConfig
 	logger   *zap.Logger
+	metrics  *OutboxMetrics
 	workerID string
 	now      func() time.Time
 }
@@ -54,6 +58,7 @@ func NewDispatcher(repo OutboxRepo, sender EmailSender, cfg DispatcherConfig, lo
 		sender:   sender,
 		cfg:      cfg,
 		logger:   logger,
+		metrics:  NewOutboxMetrics(),
 		workerID: uuid.NewString(),
 		now:      time.Now,
 	}
@@ -71,6 +76,11 @@ func NewFromConfig(repo OutboxRepo, sender EmailSender, cfg config.EmailConfig, 
 		BaseBackoff: cfg.OutboxBaseBackoff,
 		MaxBackoff:  cfg.OutboxMaxBackoff,
 	}, logger)
+}
+
+// Metrics returns the dispatcher's operational metrics for scrape wiring.
+func (d *Dispatcher) Metrics() *OutboxMetrics {
+	return d.metrics
 }
 
 // Run polls the outbox until ctx is cancelled. On cancellation it stops
@@ -110,6 +120,16 @@ func (d *Dispatcher) dispatchOnce(ctx context.Context) (int, error) {
 	for _, e := range events {
 		d.deliver(ctx, e)
 	}
+
+	// Refresh backlog gauges after processing this batch.
+	if count, oldestAge, statErr := d.repo.PendingStats(ctx, d.now()); statErr != nil {
+		if ctx.Err() == nil {
+			d.logger.Warn("outbox pending stats failed", zap.Error(statErr))
+		}
+	} else {
+		d.metrics.recordPending(count, oldestAge.Seconds())
+	}
+
 	return len(events), nil
 }
 
@@ -120,10 +140,20 @@ func (d *Dispatcher) deliver(ctx context.Context, e *emaildomain.OutboxEvent) {
 	sendCtx, cancel := context.WithTimeout(ctx, d.cfg.SendTimeout)
 	defer cancel()
 
-	if err := d.send(sendCtx, e); err != nil {
+	start := d.now()
+	err := d.send(sendCtx, e)
+	elapsed := d.now().Sub(start).Seconds()
+
+	if err != nil {
 		attempts := e.Attempts + 1
 		dead := errors.Is(err, errPermanent) || attempts >= d.cfg.MaxAttempts
 		nextAttemptAt := d.now().Add(d.backoff(e.Attempts))
+
+		outcome := emaildomain.OutboxStatusPending // "retry"
+		if dead {
+			outcome = emaildomain.OutboxStatusDead
+		}
+		d.metrics.recordOutcome(e.EventType, outcomeLabel(outcome), elapsed)
 
 		if markErr := d.repo.MarkRetry(ctx, e.ID, nextAttemptAt, sanitizeError(err), dead); markErr != nil {
 			d.logger.Error("mark retry failed", zap.String("event_id", e.ID), zap.Error(markErr))
@@ -139,6 +169,7 @@ func (d *Dispatcher) deliver(ctx context.Context, e *emaildomain.OutboxEvent) {
 		return
 	}
 
+	d.metrics.recordOutcome(e.EventType, "sent", elapsed)
 	if err := d.repo.MarkSent(ctx, e.ID); err != nil {
 		d.logger.Error("mark sent failed", zap.String("event_id", e.ID), zap.Error(err))
 		return
@@ -147,6 +178,14 @@ func (d *Dispatcher) deliver(ctx context.Context, e *emaildomain.OutboxEvent) {
 		zap.String("event_id", e.ID),
 		zap.String("event_type", e.EventType),
 	)
+}
+
+// outcomeLabel maps a terminal/retry status to the bounded metric outcome label.
+func outcomeLabel(status string) string {
+	if status == emaildomain.OutboxStatusDead {
+		return "dead"
+	}
+	return "retry"
 }
 
 // send maps an allowlisted event type to the matching EmailSender call. An
