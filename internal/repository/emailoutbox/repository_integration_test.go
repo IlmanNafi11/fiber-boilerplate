@@ -205,6 +205,29 @@ func (s *OutboxSuite) TestMarkSent_MakesEventUnclaimable() {
 	assert.Empty(s.T(), again)
 }
 
+// TestMarkSent_ClearsPayload guards that MarkSent wipes the payload so single-use
+// tokens do not persist in plaintext after delivery. It enqueues a NON-empty
+// token payload (an empty starting payload would make the assertion vacuous) and
+// asserts the row's payload is {} once sent. Fails if the payload='{}'::jsonb
+// clear in MarkSent is removed.
+func (s *OutboxSuite) TestMarkSent_ClearsPayload() {
+	ctx := context.Background()
+	s.enqueue("verification", "token@example.com", []byte(`{"token":"super-secret-token"}`))
+
+	claimed, err := s.repo.ClaimBatch(ctx, "w", 10, time.Minute, time.Now())
+	require.NoError(s.T(), err)
+	require.Len(s.T(), claimed, 1)
+	require.JSONEq(s.T(), `{"token":"super-secret-token"}`, string(claimed[0].Payload),
+		"claimed event must still carry the token for delivery")
+
+	require.NoError(s.T(), s.repo.MarkSent(ctx, claimed[0].ID))
+
+	var payload []byte
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		"SELECT payload FROM email_outbox WHERE id = $1", claimed[0].ID).Scan(&payload))
+	assert.JSONEq(s.T(), `{}`, string(payload), "MarkSent must clear the payload plaintext token")
+}
+
 func (s *OutboxSuite) TestMarkRetry_ReschedulesAndRecordsError() {
 	ctx := context.Background()
 	evt := s.enqueue("verification", "retry@example.com", []byte(`{}`))

@@ -5,9 +5,11 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -467,6 +469,106 @@ func (s *AuthIntegrationSuite) TestResendVerification_EnqueuesFreshEvent() {
 	require.NoError(s.T(), s.svc.VerifyEmail(ctx, token))
 }
 
+// failingOutboxRepo fails every enqueue so tests can exercise the atomicity
+// boundary: an enqueue error inside a transaction must roll back the commit.
+// Tests swap it into s.svc.outboxRepo (a legal in-package write to the
+// unexported OutboxRepo field); SetupTest rebuilds a fresh service per test, so
+// the swap never leaks. Do not add t.Parallel() to these tests without giving
+// each its own service — they mutate the shared s.svc.
+type failingOutboxRepo struct{}
+
+func (failingOutboxRepo) EnqueueWithTx(context.Context, pgx.Tx, *emaildomain.OutboxEvent) error {
+	return errors.New("smtp down")
+}
+
+func (s *AuthIntegrationSuite) TestRegister_VerificationEnqueueFailure_StillCreatesUser() {
+	ctx := context.Background()
+
+	// Swap in the failing outbox: Register logs the verification failure but
+	// must still create and return the user.
+	s.svc.outboxRepo = failingOutboxRepo{}
+
+	user, err := s.svc.Register(ctx, &aservice.RegisterRequest{
+		Email:    "enqueue-fail@example.com",
+		Password: "Password123",
+	})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "enqueue-fail@example.com", user.Email)
+
+	// The failed enqueue rolled back the verification-token row with it.
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypeVerification, "enqueue-fail@example.com"))
+	var tokenCount int
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM email_verification_tokens WHERE user_id = $1`, user.ID,
+	).Scan(&tokenCount))
+	assert.Zero(s.T(), tokenCount, "verification token must roll back with the failed enqueue")
+
+	// Account exists but is unverified → login is rejected.
+	_, err = s.svc.Login(ctx, &aservice.LoginRequest{
+		Email:    "enqueue-fail@example.com",
+		Password: "Password123",
+	}, "test-agent", "127.0.0.1")
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), 403, err.(*errx.AppError).HTTPStatus)
+}
+
+func (s *AuthIntegrationSuite) TestResetPassword_EnqueueFailure_RollsBack() {
+	ctx := context.Background()
+
+	s.registerAndVerify("reset-enqueue-fail@example.com", "Password123")
+
+	// Issue a reset token through the real outbox.
+	require.NoError(s.T(), s.svc.ForgotPassword(ctx, "reset-enqueue-fail@example.com"))
+	resetToken := s.outboxToken(emaildomain.EventTypePasswordReset, "reset-enqueue-fail@example.com")
+
+	// Reset with the failing outbox: the password change, token consumption,
+	// and notification must all roll back atomically.
+	s.svc.outboxRepo = failingOutboxRepo{}
+	err := s.svc.ResetPassword(ctx, resetToken, "NewPassword123")
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), 500, err.(*errx.AppError).HTTPStatus)
+
+	// Old password still works — the change did not commit.
+	_, err = s.svc.Login(ctx, &aservice.LoginRequest{
+		Email:    "reset-enqueue-fail@example.com",
+		Password: "Password123",
+	}, "test-agent", "127.0.0.1")
+	require.NoError(s.T(), err)
+
+	// No password-changed notification and no reset-token consumption leaked.
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypePasswordChanged, "reset-enqueue-fail@example.com"))
+	var consumed bool
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		`SELECT used_at IS NOT NULL FROM password_reset_tokens WHERE token_hash = $1`,
+		sha256Hex(resetToken),
+	).Scan(&consumed))
+	assert.False(s.T(), consumed, "reset token must not be consumed when the commit rolls back")
+}
+
+func (s *AuthIntegrationSuite) TestForgotPassword_EnqueueFailure_RollsBack() {
+	ctx := context.Background()
+
+	s.registerAndVerify("forgot-enqueue-fail@example.com", "Password123")
+	u, err := s.svc.userRepo.GetByEmail(ctx, "forgot-enqueue-fail@example.com")
+	require.NoError(s.T(), err)
+
+	// The reset-token create and its email enqueue share one transaction; a
+	// failing enqueue must roll back the newly created token with it.
+	s.svc.outboxRepo = failingOutboxRepo{}
+	err = s.svc.ForgotPassword(ctx, "forgot-enqueue-fail@example.com")
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), 500, err.(*errx.AppError).HTTPStatus)
+
+	// No reset token persisted and no reset email enqueued.
+	var tokenCount int
+	require.NoError(s.T(), s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = $1`, u.ID,
+	).Scan(&tokenCount))
+	assert.Zero(s.T(), tokenCount, "reset token must roll back with the failed enqueue")
+	assert.Equal(s.T(), 0, s.outboxCount(emaildomain.EventTypePasswordReset, "forgot-enqueue-fail@example.com"))
+}
+
 func TestAuthIntegrationSuite(t *testing.T) {
 	suite.Run(t, new(AuthIntegrationSuite))
 }
+
