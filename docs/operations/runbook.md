@@ -95,6 +95,27 @@ Proceed to [Smoke checks](#smoke-checks). If any smoke check fails, go to
   known destructive and forward-compatibility was explicitly broken; in that case
   the rollback is a coordinated schema+app operation, not a tag swap.
 
+### Data retention (email outbox)
+
+`email_outbox` is append-only during normal operation. `MarkSent` clears each
+row's `payload` (so single-use tokens do not persist in plaintext after
+delivery) but leaves the row in place; `dead`-lettered rows are also retained
+for diagnostics. The claim index only covers `pending` rows, so delivered rows
+do not slow dispatch — but the table grows unbounded without periodic cleanup.
+
+Schedule a maintenance job (cron / platform scheduler) to prune it. Suggested
+policy: delete `sent` rows older than 7 days, archive or delete `dead` rows
+after triage.
+
+```sql
+DELETE FROM email_outbox
+WHERE status = 'sent' AND updated_at < NOW() - INTERVAL '7 days';
+```
+
+`dead` rows should be inspected (see the dead-letter alert under
+[Monitoring](#monitoring)) before deletion, since they represent undelivered
+auth mail.
+
 ### Smoke checks
 
 Run against the deployed instance (replace host/port as appropriate):

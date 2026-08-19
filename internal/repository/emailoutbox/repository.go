@@ -77,11 +77,13 @@ func (r *Repository) ClaimBatch(ctx context.Context, workerID string, limit int,
 	return events, rows.Err()
 }
 
-// MarkSent marks a claimed event as delivered and releases its lease.
+// MarkSent marks a claimed event as delivered, releases its lease, and clears
+// the payload so single-use tokens do not persist in plaintext after delivery.
 func (r *Repository) MarkSent(ctx context.Context, id string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE email_outbox SET
 			status = 'sent',
+			payload = '{}'::jsonb,
 			locked_at = NULL,
 			locked_by = NULL,
 			updated_at = NOW()

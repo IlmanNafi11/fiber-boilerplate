@@ -40,8 +40,9 @@ type OutboxEvent struct {
 }
 
 // TokenPayload is the JSON payload for events that carry a single-use token
-// (verification and password reset). It never appears in logs — the token
-// lives only in the outbox row and is deleted with the event after delivery.
+// (verification and password reset). It never appears in logs, and the payload
+// is cleared on the row once the event is marked sent, so the token does not
+// persist in plaintext after delivery.
 type TokenPayload struct {
 	Token string `json:"token"`
 }
