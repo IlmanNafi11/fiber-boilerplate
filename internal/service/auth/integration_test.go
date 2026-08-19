@@ -319,15 +319,19 @@ func (s *AuthIntegrationSuite) TestRefreshToken_NormalRotation() {
 }
 
 func (s *AuthIntegrationSuite) TestRefreshToken_ReuseDetection() {
-	// Use short grace period for this test
-	shortGraceCfg := config.AuthConfig{
+	graceCfg := config.AuthConfig{
 		JWTSecret:           "test-secret-key-that-is-long-enough",
 		JWTAccessTTL:        15 * time.Minute,
 		JWTRefreshTTL:       168 * time.Hour,
-		RefreshGracePeriod:  100 * time.Millisecond,
+		RefreshGracePeriod:  1 * time.Minute,
 		RegistrationEnabled: true,
 	}
-	s.setupService(shortGraceCfg, testEmailConfig(true))
+	s.setupService(graceCfg, testEmailConfig(true))
+
+	// Drive the service clock so the grace boundary is exercised without sleeping.
+	base := time.Now()
+	current := base
+	s.svc.now = func() time.Time { return current }
 
 	ctx := context.Background()
 	s.registerAndVerify("reuse@example.com", "Password123")
@@ -338,14 +342,18 @@ func (s *AuthIntegrationSuite) TestRefreshToken_ReuseDetection() {
 	}, "test-agent", "127.0.0.1")
 	require.NoError(s.T(), err)
 
-	// Rotate → old token is revoked with short grace period
+	// Rotate at t=base → old token is revoked with GraceUntil = base + 1m.
 	_, err = s.svc.RefreshToken(ctx, tokenResp.RefreshToken)
 	require.NoError(s.T(), err)
 
-	// Wait for grace period to expire
-	time.Sleep(200 * time.Millisecond)
+	// Within the grace window: reusing the old token rotates a fresh one, not reuse.
+	current = base.Add(59 * time.Second)
+	graceResp, err := s.svc.RefreshToken(ctx, tokenResp.RefreshToken)
+	require.NoError(s.T(), err)
+	assert.NotEqual(s.T(), tokenResp.RefreshToken, graceResp.RefreshToken)
 
-	// Reuse old token → 401 reuse detected
+	// At/after the grace boundary: reuse is detected and the session is revoked.
+	current = base.Add(1 * time.Minute)
 	_, err = s.svc.RefreshToken(ctx, tokenResp.RefreshToken)
 	require.Error(s.T(), err)
 	assert.Equal(s.T(), 401, err.(*errx.AppError).HTTPStatus)

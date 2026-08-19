@@ -75,6 +75,7 @@ type AuthService struct {
 	emailCfg                   config.EmailConfig
 	logger                     *zap.Logger
 	pool                       *pgxpool.Pool
+	now                        func() time.Time
 }
 
 func NewAuthService(
@@ -104,7 +105,17 @@ func NewAuthService(
 		emailCfg:                   emailCfg,
 		logger:                     logger,
 		pool:                       pool,
+		now:                        time.Now,
 	}
+}
+
+// clock returns the current time via the injected clock, falling back to
+// time.Now when the service was built without one (e.g. struct-literal tests).
+func (s *AuthService) clock() time.Time {
+	if fn := s.now; fn != nil {
+		return fn()
+	}
+	return time.Now()
 }
 
 func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest) (*usermodel.User, error) {
@@ -146,7 +157,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 			verificationToken := &authdto.EmailVerificationToken{
 				UserID:    u.ID,
 				TokenHash: tokenHash,
-				ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
+				ExpiresAt: s.clock().Add(s.emailCfg.VerificationTokenTTL),
 			}
 			err := s.withTx(ctx, func(tx pgx.Tx) error {
 				if err := s.emailVerificationTokenRepo.CreateWithTx(ctx, tx, verificationToken); err != nil {
@@ -160,7 +171,7 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		}
 	} else {
 		if err := s.userRepo.UpdateEmailVerifiedAt(ctx, u.ID); err == nil {
-			now := time.Now()
+			now := s.clock()
 			u.EmailVerifiedAt = &now
 		}
 	}
@@ -196,7 +207,7 @@ func (s *AuthService) Login(ctx context.Context, req *authdto.LoginRequest, user
 		UserID:    u.ID,
 		UserAgent: userAgent,
 		IPAddress: ip,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
+		ExpiresAt: s.clock().Add(s.tokenHelper.RefreshTTL()),
 	}
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
 		return nil, errx.Internal("session creation failed", err.Error())
@@ -225,7 +236,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 	}
 
 	// Check token expiry
-	if time.Now().After(token.ExpiresAt) {
+	if s.clock().After(token.ExpiresAt) {
 		return nil, errx.Unauthorized("refresh token expired")
 	}
 
@@ -240,7 +251,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 
 	// Reuse detection: token already revoked
 	if token.RevokedAt != nil {
-		if token.GraceUntil != nil && time.Now().Before(*token.GraceUntil) {
+		if token.GraceUntil != nil && s.clock().Before(*token.GraceUntil) {
 			newPlain, newToken, err := s.newRefreshToken(session.ID)
 			if err != nil {
 				return nil, errx.Internal("token generation failed", err.Error())
@@ -274,7 +285,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, plainToken string) (*aut
 		}
 	}()
 
-	graceTime := time.Now().Add(s.tokenHelper.GracePeriod())
+	graceTime := s.clock().Add(s.tokenHelper.GracePeriod())
 	if err := s.refreshTokenRepo.RevokeWithTx(ctx, tx, token.ID, &graceTime); err != nil {
 		return nil, errx.Internal("token revocation failed", err.Error())
 	}
@@ -342,7 +353,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 		return errx.BadRequest("verification token already used")
 	}
 
-	if time.Now().After(verificationToken.ExpiresAt) {
+	if s.clock().After(verificationToken.ExpiresAt) {
 		return errx.BadRequest("verification token has expired")
 	}
 
@@ -375,7 +386,7 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 	verificationToken := &authdto.EmailVerificationToken{
 		UserID:    u.ID,
 		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
+		ExpiresAt: s.clock().Add(s.emailCfg.VerificationTokenTTL),
 	}
 
 	// Invalidate outstanding tokens, persist the new one, and enqueue its email
@@ -409,7 +420,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	resetToken := &authdto.PasswordResetToken{
 		UserID:    u.ID,
 		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.emailCfg.PasswordResetTokenTTL),
+		ExpiresAt: s.clock().Add(s.emailCfg.PasswordResetTokenTTL),
 	}
 
 	// Invalidate outstanding reset tokens, persist the new one, and enqueue its
@@ -445,7 +456,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return errx.BadRequest("reset token already used")
 	}
 
-	if time.Now().After(resetToken.ExpiresAt) {
+	if s.clock().After(resetToken.ExpiresAt) {
 		return errx.BadRequest("reset token has expired")
 	}
 
@@ -551,7 +562,7 @@ func (s *AuthService) newRefreshToken(sessionID string) (string, *authdto.Refres
 	return plainToken, &authdto.RefreshToken{
 		SessionID: sessionID,
 		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
+		ExpiresAt: s.clock().Add(s.tokenHelper.RefreshTTL()),
 	}, nil
 }
 

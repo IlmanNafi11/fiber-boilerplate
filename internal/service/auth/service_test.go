@@ -547,41 +547,56 @@ func TestRefreshToken_RevokedSession(t *testing.T) {
 	mockSess.AssertExpectations(t)
 }
 
-func TestRefreshToken_ReuseOutsideGracePeriod(t *testing.T) {
-	mockRT := new(mockRefreshTokenRepo)
-	mockSess := new(mockSessionRepo)
+// TestRefreshToken_GraceBoundary exercises reuse detection at and past the exact
+// grace boundary using an injected clock, so no wall-clock sleep is required.
+// The "before boundary" rotation-success case needs a concrete userRepo and is
+// covered in the integration suite (TestRefreshToken_ReuseDetection).
+func TestRefreshToken_GraceBoundary(t *testing.T) {
+	graceUntil := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	revokedAt := graceUntil.Add(-1 * time.Minute)
 
-	revokedAt := time.Now().Add(-2 * time.Minute)
-	graceUntil := time.Now().Add(-1 * time.Minute) // grace period already passed
-
-	mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
-		Return(&aservice.RefreshToken{
-			ID:         "token-1",
-			SessionID:  "session-1",
-			RevokedAt:  &revokedAt,
-			ExpiresAt:  time.Now().Add(24 * time.Hour),
-			GraceUntil: &graceUntil,
-		}, nil)
-
-	mockSess.On("GetByID", mock.Anything, "session-1").
-		Return(&aservice.Session{ID: "session-1"}, nil)
-
-	mockSess.On("RevokeByID", mock.Anything, "session-1").Return(nil)
-	mockRT.On("RevokeBySessionID", mock.Anything, "session-1").Return(nil)
-
-	svc := &AuthService{
-		refreshTokenRepo: mockRT,
-		sessionRepo:      mockSess,
-		tokenHelper:      NewTokenHelper(testAuthConfig()),
-		logger:           zap.NewNop(),
+	cases := []struct {
+		name string
+		now  time.Time
+	}{
+		{name: "exactly at boundary is reuse", now: graceUntil},
+		{name: "after boundary is reuse", now: graceUntil.Add(1 * time.Nanosecond)},
 	}
 
-	_, err := svc.RefreshToken(context.Background(), "some-token")
-	require.Error(t, err)
-	assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
-	assert.Contains(t, err.(*errx.AppError).Message, "reuse detected")
-	mockRT.AssertExpectations(t)
-	mockSess.AssertExpectations(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockRT := new(mockRefreshTokenRepo)
+			mockSess := new(mockSessionRepo)
+
+			mockRT.On("GetByTokenHash", mock.Anything, mock.AnythingOfType("string")).
+				Return(&aservice.RefreshToken{
+					ID:         "token-1",
+					SessionID:  "session-1",
+					RevokedAt:  &revokedAt,
+					ExpiresAt:  graceUntil.Add(24 * time.Hour),
+					GraceUntil: &graceUntil,
+				}, nil)
+			mockSess.On("GetByID", mock.Anything, "session-1").
+				Return(&aservice.Session{ID: "session-1", UserID: "user-1"}, nil)
+			mockSess.On("RevokeByID", mock.Anything, "session-1").Return(nil)
+			mockRT.On("RevokeBySessionID", mock.Anything, "session-1").Return(nil)
+
+			svc := &AuthService{
+				refreshTokenRepo: mockRT,
+				sessionRepo:      mockSess,
+				tokenHelper:      NewTokenHelper(testAuthConfig()),
+				logger:           zap.NewNop(),
+				now:              func() time.Time { return tc.now },
+			}
+
+			_, err := svc.RefreshToken(context.Background(), "some-token")
+			require.Error(t, err)
+			assert.Equal(t, 401, err.(*errx.AppError).HTTPStatus)
+			assert.Contains(t, err.(*errx.AppError).Message, "reuse detected")
+			mockRT.AssertExpectations(t)
+			mockSess.AssertExpectations(t)
+		})
+	}
 }
 
 // NOTE: Login, Register (success path), GetCurrentUser, ResendVerification,
