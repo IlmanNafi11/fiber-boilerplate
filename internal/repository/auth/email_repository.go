@@ -32,6 +32,20 @@ func (r *EmailVerificationTokenRepository) Create(ctx context.Context, t *auth.E
 	return err
 }
 
+// CreateWithTx inserts a verification token within the caller's transaction so
+// it commits atomically with the outbox event that dispatches it.
+func (r *EmailVerificationTokenRepository) CreateWithTx(ctx context.Context, tx pgx.Tx, t *auth.EmailVerificationToken) error {
+	t.ID = uuid.New().String()
+	t.CreatedAt = time.Now()
+
+	_, err := tx.Exec(ctx,
+		`INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3, $4)`,
+		t.ID, t.UserID, t.TokenHash, t.ExpiresAt,
+	)
+	return err
+}
+
 func (r *EmailVerificationTokenRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*auth.EmailVerificationToken, error) {
 	t := &auth.EmailVerificationToken{}
 	err := r.pool.QueryRow(ctx,
@@ -65,6 +79,16 @@ func (r *EmailVerificationTokenRepository) MarkUsed(ctx context.Context, id stri
 
 func (r *EmailVerificationTokenRepository) MarkUsedByUserID(ctx context.Context, userID string) error {
 	_, err := r.pool.Exec(ctx,
+		`UPDATE email_verification_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+		userID,
+	)
+	return err
+}
+
+// MarkUsedByUserIDWithTx invalidates a user's outstanding verification tokens
+// within the caller's transaction.
+func (r *EmailVerificationTokenRepository) MarkUsedByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	_, err := tx.Exec(ctx,
 		`UPDATE email_verification_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
 		userID,
 	)

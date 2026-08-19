@@ -97,6 +97,15 @@ func (m *mockEmailVerificationTokenRepo) MarkUsedByUserID(_ context.Context, use
 	return m.Called(userID).Error(0)
 }
 
+func (m *mockEmailVerificationTokenRepo) CreateWithTx(_ context.Context, _ pgx.Tx, t *aservice.EmailVerificationToken) error {
+	t.ID = uuid.New().String()
+	return nil
+}
+
+func (m *mockEmailVerificationTokenRepo) MarkUsedByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
+	return nil
+}
+
 type mockPasswordResetTokenRepo struct {
 	mock.Mock
 }
@@ -120,6 +129,15 @@ func (m *mockPasswordResetTokenRepo) MarkUsedWithTx(_ context.Context, _ pgx.Tx,
 
 func (m *mockPasswordResetTokenRepo) MarkUsedByUserID(_ context.Context, userID string) error {
 	return m.Called(userID).Error(0)
+}
+
+func (m *mockPasswordResetTokenRepo) CreateWithTx(_ context.Context, _ pgx.Tx, t *aservice.PasswordResetToken) error {
+	t.ID = uuid.New().String()
+	return nil
+}
+
+func (m *mockPasswordResetTokenRepo) MarkUsedByUserIDWithTx(_ context.Context, _ pgx.Tx, _ string) error {
+	return nil
 }
 
 // --- CaptureEmailSender captures email arguments for integration tests ---

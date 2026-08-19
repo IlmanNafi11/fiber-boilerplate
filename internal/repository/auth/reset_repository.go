@@ -32,6 +32,20 @@ func (r *PasswordResetTokenRepository) Create(ctx context.Context, t *auth.Passw
 	return err
 }
 
+// CreateWithTx inserts a reset token within the caller's transaction so it
+// commits atomically with the outbox event that dispatches it.
+func (r *PasswordResetTokenRepository) CreateWithTx(ctx context.Context, tx pgx.Tx, t *auth.PasswordResetToken) error {
+	t.ID = uuid.New().String()
+	t.CreatedAt = time.Now()
+
+	_, err := tx.Exec(ctx,
+		`INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3, $4)`,
+		t.ID, t.UserID, t.TokenHash, t.ExpiresAt,
+	)
+	return err
+}
+
 func (r *PasswordResetTokenRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*auth.PasswordResetToken, error) {
 	t := &auth.PasswordResetToken{}
 	err := r.pool.QueryRow(ctx,
@@ -65,6 +79,16 @@ func (r *PasswordResetTokenRepository) MarkUsedWithTx(ctx context.Context, tx pg
 
 func (r *PasswordResetTokenRepository) MarkUsedByUserID(ctx context.Context, userID string) error {
 	_, err := r.pool.Exec(ctx,
+		`UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+		userID,
+	)
+	return err
+}
+
+// MarkUsedByUserIDWithTx invalidates a user's outstanding reset tokens within
+// the caller's transaction.
+func (r *PasswordResetTokenRepository) MarkUsedByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	_, err := tx.Exec(ctx,
 		`UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
 		userID,
 	)

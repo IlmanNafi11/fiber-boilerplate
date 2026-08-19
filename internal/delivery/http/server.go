@@ -17,6 +17,7 @@ import (
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/handler"
 	"github.com/ilmannafi/fiber-boilerplate/internal/delivery/http/middleware"
 	authrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/auth"
+	outboxrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/emailoutbox"
 	productrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/product"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	authservice "github.com/ilmannafi/fiber-boilerplate/internal/service/auth"
@@ -128,12 +129,14 @@ func NewServer(cfg *config.Config, logger *zap.Logger, pool *pgxpool.Pool) *fibe
 		refreshTokenRepo := authrepo.NewRefreshTokenRepository(pool)
 		emailVerificationTokenRepo := authrepo.NewEmailVerificationTokenRepository(pool)
 		passwordResetTokenRepo := authrepo.NewPasswordResetTokenRepository(pool)
+		outboxRepo := outboxrepo.NewRepository(pool)
 
 		tokenHelper := authservice.NewTokenHelper(cfg.Auth)
 		emailSender := emailsender.NewSMTPEmailSender(cfg.SMTP, logger)
 		authSvc := authservice.NewAuthService(
 			userRepo, sessionRepo, refreshTokenRepo,
 			emailVerificationTokenRepo, passwordResetTokenRepo,
+			outboxRepo,
 			tokenHelper, emailSender,
 			cfg.Auth, cfg.Email,
 			logger, pool,

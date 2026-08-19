@@ -8,6 +8,7 @@ import (
 
 	"github.com/ilmannafi/fiber-boilerplate/internal/config"
 	authdto "github.com/ilmannafi/fiber-boilerplate/internal/domain/auth"
+	emaildomain "github.com/ilmannafi/fiber-boilerplate/internal/domain/email"
 	usermodel "github.com/ilmannafi/fiber-boilerplate/internal/domain/user"
 	userrepo "github.com/ilmannafi/fiber-boilerplate/internal/repository/user"
 	"github.com/ilmannafi/fiber-boilerplate/internal/service/email"
@@ -39,17 +40,26 @@ type SessionRepo interface {
 // EmailVerificationTokenRepo defines the interface for email verification token persistence.
 type EmailVerificationTokenRepo interface {
 	Create(ctx context.Context, t *authdto.EmailVerificationToken) error
+	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.EmailVerificationToken) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.EmailVerificationToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	MarkUsedByUserID(ctx context.Context, userID string) error
+	MarkUsedByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 }
 
 // PasswordResetTokenRepo defines the interface for password reset token persistence.
 type PasswordResetTokenRepo interface {
 	Create(ctx context.Context, t *authdto.PasswordResetToken) error
+	CreateWithTx(ctx context.Context, tx pgx.Tx, t *authdto.PasswordResetToken) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*authdto.PasswordResetToken, error)
 	MarkUsedByUserID(ctx context.Context, userID string) error
+	MarkUsedByUserIDWithTx(ctx context.Context, tx pgx.Tx, userID string) error
 	MarkUsedWithTx(ctx context.Context, tx pgx.Tx, id string) error
+}
+
+// OutboxRepo enqueues durable email events within a caller-provided transaction.
+type OutboxRepo interface {
+	EnqueueWithTx(ctx context.Context, tx pgx.Tx, e *emaildomain.OutboxEvent) error
 }
 
 type AuthService struct {
@@ -58,6 +68,7 @@ type AuthService struct {
 	refreshTokenRepo           RefreshTokenRepo
 	emailVerificationTokenRepo EmailVerificationTokenRepo
 	passwordResetTokenRepo     PasswordResetTokenRepo
+	outboxRepo                 OutboxRepo
 	tokenHelper                *TokenHelper
 	emailSender                email.EmailSender
 	cfg                        config.AuthConfig
@@ -72,6 +83,7 @@ func NewAuthService(
 	refreshTokenRepo RefreshTokenRepo,
 	emailVerificationTokenRepo EmailVerificationTokenRepo,
 	passwordResetTokenRepo PasswordResetTokenRepo,
+	outboxRepo OutboxRepo,
 	tokenHelper *TokenHelper,
 	emailSender email.EmailSender,
 	cfg config.AuthConfig,
@@ -85,6 +97,7 @@ func NewAuthService(
 		refreshTokenRepo:           refreshTokenRepo,
 		emailVerificationTokenRepo: emailVerificationTokenRepo,
 		passwordResetTokenRepo:     passwordResetTokenRepo,
+		outboxRepo:                 outboxRepo,
 		tokenHelper:                tokenHelper,
 		emailSender:                emailSender,
 		cfg:                        cfg,
@@ -122,7 +135,9 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 		return nil, errx.Internal("user creation failed", err.Error())
 	}
 
-	// Handle email verification (D-10, D-13, EML-01)
+	// Handle email verification (D-10, D-13, EML-01). The token and its outbox
+	// event commit together so a durable dispatch is guaranteed for every
+	// verification token that reaches persistence.
 	if s.emailCfg.VerificationEnabled {
 		plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 		if err != nil {
@@ -133,18 +148,14 @@ func (s *AuthService) Register(ctx context.Context, req *authdto.RegisterRequest
 				TokenHash: tokenHash,
 				ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
 			}
-			if err := s.emailVerificationTokenRepo.Create(ctx, verificationToken); err != nil {
-				s.logger.Error("failed to store verification token", zap.Error(err))
-			} else {
-				go func() {
-					emailCtx := context.WithoutCancel(ctx)
-					if err := s.emailSender.SendVerificationEmail(emailCtx, u.Email, plainToken); err != nil {
-						s.logger.Error("failed to send verification email",
-							zap.String("user_id", u.ID),
-							zap.Error(err),
-						)
-					}
-				}()
+			err := s.withTx(ctx, func(tx pgx.Tx) error {
+				if err := s.emailVerificationTokenRepo.CreateWithTx(ctx, tx, verificationToken); err != nil {
+					return err
+				}
+				return s.enqueueTokenEmail(ctx, tx, emaildomain.EventTypeVerification, u.Email, plainToken)
+			})
+			if err != nil {
+				s.logger.Error("failed to persist verification token", zap.String("user_id", u.ID), zap.Error(err))
 			}
 		}
 	} else {
@@ -356,13 +367,6 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 		return nil
 	}
 
-	if err := s.emailVerificationTokenRepo.MarkUsedByUserID(ctx, u.ID); err != nil {
-		s.logger.Warn("failed to invalidate previous verification tokens",
-			zap.String("user_id", u.ID),
-			zap.Error(err),
-		)
-	}
-
 	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
 	if err != nil {
 		return errx.Internal("token generation failed", err.Error())
@@ -373,19 +377,20 @@ func (s *AuthService) ResendVerification(ctx context.Context, email string) erro
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.emailCfg.VerificationTokenTTL),
 	}
-	if err := s.emailVerificationTokenRepo.Create(ctx, verificationToken); err != nil {
+
+	// Invalidate outstanding tokens, persist the new one, and enqueue its email
+	// atomically so a resend never leaves a token without a durable dispatch.
+	if err := s.withTx(ctx, func(tx pgx.Tx) error {
+		if err := s.emailVerificationTokenRepo.MarkUsedByUserIDWithTx(ctx, tx, u.ID); err != nil {
+			return err
+		}
+		if err := s.emailVerificationTokenRepo.CreateWithTx(ctx, tx, verificationToken); err != nil {
+			return err
+		}
+		return s.enqueueTokenEmail(ctx, tx, emaildomain.EventTypeVerification, u.Email, plainToken)
+	}); err != nil {
 		return errx.Internal("token storage failed", err.Error())
 	}
-
-	go func() {
-		emailCtx := context.WithoutCancel(ctx)
-		if err := s.emailSender.SendVerificationEmail(emailCtx, u.Email, plainToken); err != nil {
-			s.logger.Error("failed to send verification email",
-				zap.String("user_id", u.ID),
-				zap.Error(err),
-			)
-		}
-	}()
 
 	return nil
 }
@@ -394,13 +399,6 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	u, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil
-	}
-
-	if err := s.passwordResetTokenRepo.MarkUsedByUserID(ctx, u.ID); err != nil {
-		s.logger.Warn("failed to invalidate previous reset tokens",
-			zap.String("user_id", u.ID),
-			zap.Error(err),
-		)
 	}
 
 	plainToken, tokenHash, err := s.tokenHelper.GenerateRefreshToken()
@@ -413,19 +411,21 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.emailCfg.PasswordResetTokenTTL),
 	}
-	if err := s.passwordResetTokenRepo.Create(ctx, resetToken); err != nil {
+
+	// Invalidate outstanding reset tokens, persist the new one, and enqueue its
+	// email atomically. Anti-enumeration is preserved: unknown emails return
+	// nil above before any state change.
+	if err := s.withTx(ctx, func(tx pgx.Tx) error {
+		if err := s.passwordResetTokenRepo.MarkUsedByUserIDWithTx(ctx, tx, u.ID); err != nil {
+			return err
+		}
+		if err := s.passwordResetTokenRepo.CreateWithTx(ctx, tx, resetToken); err != nil {
+			return err
+		}
+		return s.enqueueTokenEmail(ctx, tx, emaildomain.EventTypePasswordReset, u.Email, plainToken)
+	}); err != nil {
 		return errx.Internal("token storage failed", err.Error())
 	}
-
-	go func() {
-		emailCtx := context.WithoutCancel(ctx)
-		if err := s.emailSender.SendPasswordResetEmail(emailCtx, u.Email, plainToken); err != nil {
-			s.logger.Error("failed to send password reset email",
-				zap.String("user_id", u.ID),
-				zap.Error(err),
-			)
-		}
-	}()
 
 	return nil
 }
@@ -458,6 +458,13 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return errx.Internal("password hashing failed", err.Error())
 	}
 
+	// Fetch the recipient before the transaction so the password-changed
+	// notification can be enqueued atomically with the password change.
+	u, err := s.userRepo.GetByID(ctx, resetToken.UserID)
+	if err != nil {
+		return errx.Internal("user lookup failed", err.Error())
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return errx.Internal("transaction begin failed", err.Error())
@@ -484,21 +491,13 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return errx.Internal("refresh token revocation failed", err.Error())
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return errx.Internal("transaction commit failed", err.Error())
+	changedEvent := emaildomain.NewNotificationEvent(emaildomain.EventTypePasswordChanged, u.Email)
+	if err := s.outboxRepo.EnqueueWithTx(ctx, tx, changedEvent); err != nil {
+		return errx.Internal("notification enqueue failed", err.Error())
 	}
 
-	u, err := s.userRepo.GetByID(ctx, resetToken.UserID)
-	if err == nil {
-		go func() {
-			emailCtx := context.WithoutCancel(ctx)
-			if err := s.emailSender.SendPasswordChangedNotification(emailCtx, u.Email); err != nil {
-				s.logger.Error("failed to send password change notification",
-					zap.String("user_id", u.ID),
-					zap.Error(err),
-				)
-			}
-		}()
+	if err := tx.Commit(ctx); err != nil {
+		return errx.Internal("transaction commit failed", err.Error())
 	}
 
 	return nil
@@ -554,6 +553,35 @@ func (s *AuthService) newRefreshToken(sessionID string) (string, *authdto.Refres
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.tokenHelper.RefreshTTL()),
 	}, nil
+}
+
+// withTx runs fn inside a database transaction, committing on success and
+// rolling back on any error. It centralizes the commit/rollback boilerplate for
+// the auth flows that persist state and enqueue an outbox email atomically.
+func (s *AuthService) withTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			s.logger.Debug("deferred rollback after commit", zap.Error(err))
+		}
+	}()
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// enqueueTokenEmail enqueues a token-carrying email event within tx.
+func (s *AuthService) enqueueTokenEmail(ctx context.Context, tx pgx.Tx, eventType, recipient, token string) error {
+	event, err := emaildomain.NewTokenEvent(eventType, recipient, token)
+	if err != nil {
+		return err
+	}
+	return s.outboxRepo.EnqueueWithTx(ctx, tx, event)
 }
 
 // buildTokenResponse mints an access token and assembles the TokenResponse from
