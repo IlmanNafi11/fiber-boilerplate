@@ -86,13 +86,18 @@ type SeederConfig struct {
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
+	swagger, err := getEnvBoolPtr("SWAGGER_ENABLED")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Env:            getEnvWithDefault("APP_ENV", "development"),
 			Port:           getEnvWithDefault("APP_PORT", "3000"),
 			Name:           os.Getenv("APP_NAME"),
 			AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
-			Swagger:        getEnvBoolPtr("SWAGGER_ENABLED"),
+			Swagger:        swagger,
 		},
 		Database: DatabaseConfig{
 			Host:            os.Getenv("DB_HOST"),
@@ -147,6 +152,10 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
+	if err := validateProduction(&cfg.Server); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
 }
 
@@ -194,17 +203,43 @@ func getEnvBoolWithDefault(key string, defaultVal bool) bool {
 }
 
 // getEnvBoolPtr parses key into a *bool: nil when unset (so callers derive a
-// default), false when set but unparseable, otherwise the parsed value.
-func getEnvBoolPtr(key string) *bool {
+// default from the environment), otherwise the parsed value. A set-but-malformed
+// value is an error so misconfiguration fails closed rather than silently
+// disabling the feature.
+func getEnvBoolPtr(key string) (*bool, error) {
 	val := os.Getenv(key)
 	if val == "" {
-		return nil
+		return nil, nil
 	}
 	b, err := strconv.ParseBool(val)
 	if err != nil {
-		b = false
+		return nil, fmt.Errorf("invalid %s: %q is not a boolean", key, val)
 	}
-	return &b
+	return &b, nil
+}
+
+// validateProduction enforces fail-closed invariants that only apply when
+// running as production: no wildcard/empty CORS origins and no Swagger UI.
+func validateProduction(s *ServerConfig) error {
+	if s.Env != "production" {
+		return nil
+	}
+
+	origins := s.GetAllowedOrigins()
+	if len(origins) == 0 {
+		return fmt.Errorf("invalid ALLOWED_ORIGINS: production requires at least one explicit origin")
+	}
+	for _, o := range origins {
+		if o == "*" {
+			return fmt.Errorf("invalid ALLOWED_ORIGINS: wildcard %q is not allowed in production", "*")
+		}
+	}
+
+	if s.SwaggerEnabled() {
+		return fmt.Errorf("invalid SWAGGER_ENABLED: Swagger UI must be disabled in production")
+	}
+
+	return nil
 }
 
 func (d *DatabaseConfig) DSN() string {

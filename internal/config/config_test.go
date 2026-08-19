@@ -81,6 +81,7 @@ func TestLoad_ValidProduction(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("APP_NAME", "test-app")
 	t.Setenv("APP_PORT", "8080")
+	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com")
 	setTestDBEnv(t)
 	defer unsetTestDBEnv(t)
 
@@ -388,17 +389,16 @@ func TestSwaggerEnabled_ExplicitFalse(t *testing.T) {
 	assert.False(t, s.SwaggerEnabled(), "explicit Swagger=false should override development default")
 }
 
-func TestLoad_SwaggerInvalidValueDefaultsFalse(t *testing.T) {
+func TestLoad_SwaggerInvalidValueFailsClosed(t *testing.T) {
 	t.Setenv("APP_NAME", "test-app")
 	setTestDBEnv(t)
 	t.Setenv("SWAGGER_ENABLED", "maybe")
 	defer unsetTestDBEnv(t)
 
 	cfg, err := Load()
-	require.NoError(t, err)
-	require.NotNil(t, cfg.Server.Swagger)
-	assert.False(t, *cfg.Server.Swagger, "invalid SWAGGER_ENABLED should parse to false")
-	assert.False(t, cfg.Server.SwaggerEnabled())
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SWAGGER_ENABLED")
 }
 
 func TestLoad_SwaggerUnsetLeavesNil(t *testing.T) {
@@ -410,4 +410,76 @@ func TestLoad_SwaggerUnsetLeavesNil(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.Swagger, "unset SWAGGER_ENABLED should leave Swagger nil for Env-based derive")
+}
+
+// setProdEnv configures a minimally valid production environment: required
+// fields set, explicit non-wildcard origins, Swagger unset (defaults off in prod).
+func setProdEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("APP_NAME", "test-app")
+	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com")
+	setTestDBEnv(t)
+	require.NoError(t, os.Unsetenv("SWAGGER_ENABLED"))
+}
+
+func TestLoad_ProductionValidBaseline(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, []string{"https://app.example.com"}, cfg.Server.GetAllowedOrigins())
+	assert.False(t, cfg.Server.SwaggerEnabled())
+}
+
+func TestLoad_ProductionRejectsUnsafeOrigins(t *testing.T) {
+	cases := []struct {
+		name    string
+		origins string
+	}{
+		{"empty", ""},
+		{"whitespace only", "   "},
+		{"bare wildcard", "*"},
+		{"wildcard among others", "https://app.example.com,*"},
+		{"wildcard with spaces", " * "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setProdEnv(t)
+			defer unsetTestDBEnv(t)
+			t.Setenv("ALLOWED_ORIGINS", tc.origins)
+
+			cfg, err := Load()
+			assert.Nil(t, cfg)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ALLOWED_ORIGINS")
+		})
+	}
+}
+
+func TestLoad_ProductionRejectsSwaggerEnabled(t *testing.T) {
+	setProdEnv(t)
+	defer unsetTestDBEnv(t)
+	t.Setenv("SWAGGER_ENABLED", "true")
+
+	cfg, err := Load()
+	assert.Nil(t, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SWAGGER_ENABLED")
+}
+
+func TestLoad_DevelopmentAllowsWildcardAndSwagger(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("APP_NAME", "test-app")
+	t.Setenv("ALLOWED_ORIGINS", "*")
+	t.Setenv("SWAGGER_ENABLED", "true")
+	setTestDBEnv(t)
+	defer unsetTestDBEnv(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.True(t, cfg.Server.SwaggerEnabled())
 }
